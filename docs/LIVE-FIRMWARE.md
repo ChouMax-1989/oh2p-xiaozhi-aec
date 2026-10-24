@@ -1,106 +1,98 @@
-# 实际使用中的 OH2P 1.62.2：脱敏固件包
+# OH2P 1.62.2 固件下载与刷机
 
-这个包来自一台正在实际使用的 **OH2P 1.62.2 音箱系统**。已经只读提取并完成来源核对，再处理提取出的副本；制作下载包不修改原音箱。
+这是给**中国版小米小爱音箱 Pro（OH2P）**用的 1.62.2 固件，已开启 SSH，保留音箱原有的回声消除（AEC），可配合本项目接入小智 AI。
 
-副本保留原有的 AEC 库、系统启动配置和小米原生程序，只清除个人登录凭据、个人 SSH 授权与已有 SSH 私钥等信息。小智账号、Wi-Fi、校准和设备身份所在的数据不随包发布。
+固件来自我们正在使用的音箱，公开前去掉了个人登录信息。公开包做过文件检查，但没有重新刷到另一台音箱上测试。
 
-**原音箱使用正常，不等于脱敏重打包后的固件已经在新音箱上刷机通过。该包尚未刷回原音箱，也尚未完成新机刷写验收。** 已有 OH2P 1.62.2 和 SSH 的使用者，直接装[小智应用包](DEPLOYMENT.md)，不用为此重刷。
+**你的音箱已经是 1.62.2，而且能 SSH 登录？不用刷，直接看[小智安装教程](DEPLOYMENT.md)。**
 
-## 下载哪个
+## 1. 下载固件
 
-- 发布页：[firmware-1.62.2-live-sanitized-20261024](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/tag/firmware-1.62.2-live-sanitized-20261024)
-- 文件：[OH2P-1.62.2-live-sanitized.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/firmware-1.62.2-live-sanitized-20261024/OH2P-1.62.2-live-sanitized.zip)
+**[点击下载 OH2P-1.62.2-live-sanitized.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/firmware-1.62.2-live-sanitized-20261024/OH2P-1.62.2-live-sanitized.zip)**
 
-这个文件用于准备音箱系统。NAS 的 Docker 镜像、NAS 安装包和音箱小智程序仍从[应用安装教程](DEPLOYMENT.md)下载。
+解压后主要用到这三个文件：
 
-## 来源已经核对到哪一步
-
-只读提取的系统镜像与 **2026-08-24 实际成功刷入的镜像完全一致**：
-
-| 项目 | 结果 |
+| 文件 | 用途 |
 | --- | --- |
-| 原始系统镜像大小 | `32,079,872` bytes |
-| 原始系统镜像 SHA256 | `3d3156b852b9115ff3e939f776df143260db72c3d4d0425c9a5aaab49d9c3482` |
-| 与同版官方系统逐文件比较 | `1,992` 个文件或链接相同，`9` 个文件有修改 |
+| `root-live-sanitized.squashfs` | 开启 SSH 的系统，下面刷的就是它 |
+| `boot.img.encrypt` | 官方 1.62.2 启动文件 |
+| `dtb.img.encrypt` | 官方 1.62.2 设备树文件 |
 
-这 9 个文件是：
+不要下载带 `candidate` 字样的旧候选。这个 ZIP 也不能直接导入 USB Burning Tool 当整机镜像刷。
+
+## 2. 确认音箱版本
+
+在米家里查看音箱的固件版本。
+
+- **已经是完整的 1.62.2 系统**：按下面的同版本刷写步骤操作，保留配套的 boot 和设备树。
+- **还是 1.60.3、1.58.6 等其他版本**：先升级到完整的官方 1.62.2，确认能正常开机联网，再回来刷。不能只把下面的系统文件写进去；旧 boot 或旧设备树与它混用，会导致无法启动。详见[跨版本说明](FIRMWARE.md)。
+
+下面这套步骤适用于 **boot0 已是 1.62.2** 的设备。不确定 boot0 版本，或以前改过启动分区的，先核对清楚，不要直接切换。
+
+## 3. 准备电脑和数据线
+
+下面用 **Mac** 演示，沿用我们之前使用的刷机工具。命令都在 Mac 的“终端”里输入，不是在 NAS 或音箱里输入。
+
+准备一根能传数据的 USB 线。我们使用的连接方式是：
 
 ```text
-bin/flash.sh
-bin/ota
-etc/asound.conf
-etc/init.d/dropbear
-etc/init.d/wireless
-etc/inittab
-etc/pam.d/common-auth
-etc/rc.local
-etc/shadow
+OH2P → Type-C 对 Type-A 数据线 → USB 2.0 Hub → Mac
 ```
 
-它们是原音箱已经在使用的改动。公开副本只处理登录密码和 SSH 密钥，不重新改写这套声音与启动逻辑：`mico_record` 仍使用 `hw:0,0`，保留 `/data/init.sh` 启动入口和原有停止 OTA 的设置，串口启动方式也保持原样（`askfirst ash`）。
+音箱仍使用自己的电源。接不上时先换数据线或 Hub 端口，[这里有连接记录](https://github.com/ChouMax-1989/oh2p-macos-worldcup)。Windows 用户不要直接照抄下面的 Mac 命令。
 
-上面的 SHA256 只用于说明**来源镜像**，不能拿来校验脱敏后重新打包的文件。公开包的大小和校验值见文末及包内清单。
+Mac 先装好 [Homebrew](https://brew.sh/zh-cn/)，然后打开终端：
 
-## ZIP 里会有哪些文件
+```sh
+brew install libusb-compat
+git clone https://github.com/stevenjoezhang/xiaoai-agent.git
+cd xiaoai-agent
+git checkout 9fc56179fbdde610e95755a843615669dece0d08
+cd deploy/flash-tool
+chmod +x flash macos/update
+```
 
-| 文件 | 来源与用途 |
-| --- | --- |
-| `root-live-sanitized.squashfs` | 从现机提取的系统副本，处理登录密码和 SSH 密钥后重新打包 |
-| `boot.img.encrypt` | 来自小米官方同版 1.62.2 固件，作为配套启动文件；不是从音箱提取 |
-| `dtb.img.encrypt` | 来自小米官方同版 1.62.2 固件，作为配套设备树；不是从音箱提取 |
-| `SHA256SUMS` | 实际发布文件的校验清单 |
-| `firmware-manifest.json` | 文件来源、大小和验证状态 |
-| 使用说明 | 包的用途、登录方式和刷机边界 |
+用 Finder 把解压出的 **`root-live-sanitized.squashfs`** 复制到这个 `flash-tool` 文件夹。可以在当前终端输入 `open .` 打开它。
 
-包里不放 `root-original.squashfs`，也不放原音箱的 `/data`、账号或设备专属数据。
+## 4. 连接并刷入
 
-## 保留什么，排除什么
+刷之前备好原系统的恢复文件；刷写过程中不要拔电源或数据线。
 
-| 保留 | 不提取、不打包 |
-| --- | --- |
-| 实际使用中的 1.62.2 系统程序 | `/data` 分区和其中的文件 |
-| 固件里的 AEC/VPM 库 | 小米与小智账号、配对状态、验证码、访问令牌 |
-| 系统内的启动入口和声音配置 | Wi-Fi 配置和密码 |
-| 小米原生语音及播放程序 | 设备校准数据、设备身份、个人 SSH key |
+先运行：
 
-原始提取文件不公开上传。公开包使用脱敏后重新打包的副本；最终重新解包检查结果与文件校验值以发布清单为准。
+```sh
+./flash connect
+```
 
-`/data` 不在包里，所以它也不包含原音箱安装的小智程序和账号。准备好系统后，仍需安装独立的音箱应用包，其中使用当前配套的三件程序：`client`、`vpm-owner` 和 `arecord` reader。应用首次连接时绑定你自己的小智账号。
+随后拔掉音箱电源，再插上。等工具真正识别到设备，输出 `identify: success`，再继续。一直连不上或出现 `ERR` 时先停下，不要继续执行写入命令。
 
-## 登录密码是什么
+确认 **boot0 已配套 1.62.2** 后，依次运行，上一条成功再执行下一条：
 
-公开版使用用户名 **`root`**、默认密码 **`open-xiaoai`**。这是所有下载者都知道的公开密码，不是维护者的个人密码。只在可信局域网使用，不把音箱 SSH 暴露到公网。
+```sh
+./flash delay 15
+./flash switch boot0
+./flash system system0 root-live-sanitized.squashfs
+```
 
-它没有强制首次改密功能。系统根分区是只读的，不能保证直接运行 `passwd` 就能持久修改密码；需要专属登录凭据时，应在系统副本中配置自己的密码或公钥，并在刷写后确认登录可用。
+这里仅写 `system0`，**不用写包里的 boot、dtb，也不要擦除 data 或改写 bootloader**。`15` 是刷机连接用的开机等待时间，不是语音响应时间。
 
-包里不分发原音箱的 SSH 私钥或个人授权 key。不要把其他人的私钥复制到自己的设备。
+看到写入成功、没有错误后，拔掉数据线和电源，再接回电源，让音箱正常启动。
 
-## 刷机前要知道
+## 5. 登录音箱，安装小智
 
-- 只面向 OH2P 1.62.2，不用于其他小爱型号。
-- ZIP 里的分区文件应按清单配套使用；它不是小米签名的整包 OTA，也不能当成全盘烧录镜像随便写入。
-- 从其他版本升级时，boot、系统和设备树需要匹配，不能只换一个系统文件就默认兼容。兼容与工具说明见[固件准备说明](FIRMWARE.md)。
-- 先保留自己的恢复材料和分区对应关系。不会刷机的使用者不要仅凭“来自正在使用的音箱”就直接尝试写入。
+音箱连上家庭网络后，在路由器的设备列表里找到它的 IP。在 Mac 终端执行，把 `SPEAKER_HOST` 换成这个 IP：
 
-旧的 `firmware-1.62.2-candidate-20261024` 来自原厂包重新制作，保留作历史构建材料。它与这里的现机提取包来源不同，不应混用文件。
+```sh
+ssh -o HostKeyAlgorithms=+ssh-rsa root@SPEAKER_HOST
+```
 
-## 发布清单与验证状态
+登录信息：
 
-副本已重打包并重新解包核对：2,114 项文件、链接和设备节点的内容及类型、权限、属主等一致。除下列三处脱敏变化外，1,326 个普通文件内容保持不变：`etc/shadow` 替换为公开密码，删除 `etc/dropbear/authorized_keys` 和空的 `etc/dropbear/dropbear_rsa_host_key`。
+- 用户名：`root`
+- 密码：`open-xiaoai`
 
-| 项目 | 结果 |
-| --- | --- |
-| 来源 | 实际使用的 OH2P 1.62.2 系统，只读提取 |
-| 来源镜像核对 | 与 2026-08-24 成功刷入镜像大小及 SHA256 完全一致 |
-| 与官方系统比较 | 1,992 个文件或链接相同、9 个文件有修改，详见上文 |
-| 发布文件名 | `OH2P-1.62.2-live-sanitized.zip` |
-| 包内分区文件及大小 | 系统 32,079,872 bytes；官方 boot 5,403,136 bytes；官方设备树 107,552 bytes |
-| ZIP 大小和 SHA256 | 见随包 SHA256SUMS 及发布页校验文件 |
-| 各分区文件 SHA256 | 见随包 SHA256SUMS 及发布页校验文件 |
-| 个人密码 hash、SSH key 排除检查 | 已通过脱敏后重新解包核对 |
-| `/data`、账号、Wi-Fi、校准和设备身份排除检查 | 未读取数据分区；发布包按明确文件清单打包 |
-| AEC 库、原生程序和启动配置保留检查 | 已通过脱敏后重新解包核对 |
-| 脱敏包刷回原音箱 | 未执行 |
-| 新音箱刷写、联网、声音及小智使用验收 | 未验证 |
+输入密码时不显示字符是正常的。这是公开密码，只在自己的局域网使用；系统只读，不能保证运行 `passwd` 就能永久改密。
 
-刷入后还要确认能开机、联网、SSH 登录，并按[安装教程](DEPLOYMENT.md)安装小智应用、绑定账号，再测试唤醒、连续问答和插话。系统文件检查不能代替这些实际操作。
+登录成功后，按 **[小智安装教程](DEPLOYMENT.md)** 安装音箱程序和 NAS Docker，再到 [xiaozhi.me](https://xiaozhi.me/) 绑定自己的账号。刷完固件不会自动装好小智；装好后默认唤醒词是 **“你好小智”**。
+
+工具用法参考[上游刷机说明](https://github.com/stevenjoezhang/xiaoai-agent/blob/9fc56179fbdde610e95755a843615669dece0d08/deploy/flash-tool/README.md)。需要查文件来源、修改内容和校验值，可看[固件制作记录](FIRMWARE-VERIFICATION.md)或 ZIP 内的 `SHA256SUMS`。
