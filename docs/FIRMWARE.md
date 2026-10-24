@@ -2,6 +2,14 @@
 
 已有 **中国版 OH2P 1.62.2 + SSH + `/data/init.sh` 启动钩子** 的音箱，直接安装本项目应用包即可，不需要重刷。下面提供真实原厂下载与干净 SSH 补丁候选生成器；应用安装包不是整机固件。**新生成的 SSH 候选尚未在音箱刷写验证，也没有改动当前家用音箱。**
 
+## 先选你需要的文件
+
+- **已经能 SSH 登录 1.62.2 音箱**：不用刷机，直接看[小白安装步骤](DEPLOYMENT.md)。
+- **只需要小米原厂固件**：使用下方官方链接。原厂包不能直接让音箱接入小智。
+- **有刷机经验，需要开放 SSH 的新候选**：[下载 OH2P-1.62.2-firmware-candidate.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/firmware-1.62.2-candidate-20261024/OH2P-1.62.2-firmware-candidate.zip)。它已通过干净构建和重新解包检查，尚未刷机验收；不熟悉分区刷写的新手先不要使用。
+
+候选的 SSH 登录用户名是 `root`，公开默认密码是 `open-xiaoai`，不属于你的个人密码。它没有强制改密功能，也不能保证直接执行 `passwd` 可持久改密。只用于可信内网；需要专属访问控制时使用下方公钥模式构建。ZIP 中的 `root-original.squashfs` 是未改动的官方恢复材料；删除预置 SSH 密钥的检查仅针对 `root-ssh-candidate.squashfs`。
+
 ## 官方原厂包：可直接下载，不含本项目 SSH 补丁
 
 [下载小米官方 OH2P 1.62.2 OTA：mico_all_616cd9d93_1.62.2.bin](https://cdn.cnbj1.fds.api.mi-img.com/xiaoqiang/rom/oh2p/mico_all_616cd9d93_1.62.2.bin)
@@ -95,7 +103,7 @@ mksquashfs ROOT OUTPUT -noappend -comp xz -b 131072 \
 | `root-ssh-candidate.squashfs` | 新生成 SSH/启动钩子/音频隔离候选，仅供 system 分区 |
 | `firmware-manifest.json`、`SHA256SUMS` | 来源、认证模式、大小、hash与未实机状态 |
 
-如发布 `OH2P-1.62.2-firmware-candidate.zip`，它应仅封装这一输出目录，并附本说明。**它是一组分区输入，不是小米签名的完整 OTA，也不是 USB Burning Tool 全盘镜像。** 它不包含本项目NAS配置、API Key或应用运行数据；小智应用仍通过[部署说明](DEPLOYMENT.md)安装。
+`OH2P-1.62.2-firmware-candidate.zip` 封装这一输出目录，并附本说明。**它是一组分区输入，不是小米签名的完整 OTA，也不是 USB Burning Tool 全盘镜像。** 它不包含本项目NAS配置、API Key或应用运行数据；小智应用仍通过[部署说明](DEPLOYMENT.md)安装。
 
 ## 兼容边界与跨版本配套
 
@@ -106,3 +114,5 @@ mksquashfs ROOT OUTPUT -noappend -comp xz -b 131072 \
 WorldCup 写入 `_aml_dtb` 时涉及解密，写后回读不能直接与加密输入做字节比较，应按实际工具与有效 FDT 结构验收。本仓库没有自动刷机脚本；刷写工具与线材说明可参考[上游 macOS 文档](https://github.com/stevenjoezhang/xiaoai-agent/blob/9fc56179fbdde610e95755a843615669dece0d08/deploy/flash-tool/README.md)。
 
 本次已完成官方文件下载、hash、分段与rootfs静态核查；构建候选的解包检查由生成器执行。未执行当前音箱刷写、分区修改、恢复测试或新候选的实机/声学验收。
+
+候选构建及重新解包检查已于 2026-10-24 [通过 GitHub Actions](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/actions/runs/40103097025)。这不包含音箱刷写验收。

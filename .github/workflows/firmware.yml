@@ -29,5 +29,8 @@ jobs:
           sha256sum OH2P-1.62.2-firmware-candidate.zip > OH2P-FIRMWARE-SHA256SUMS
       - name: Upload candidate separately from tested application packages
         run: |
-          gh release view v2026.10.24.1
-          gh release upload v2026.10.24.1 "$RUNNER_TEMP/OH2P-1.62.2-firmware-candidate.zip" "$RUNNER_TEMP/OH2P-FIRMWARE-SHA256SUMS"
+          tag=firmware-1.62.2-candidate-20261024
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --prerelease --target "$GITHUB_SHA" --title 'OH2P 1.62.2 SSH 固件候选（未刷机验收）' --notes '从官方固件干净构建；尚未刷机验收。公开默认密码 root/open-xiaoai，无强制轮转。请先读 docs/FIRMWARE.md。'
+          fi
+          gh release upload "$tag" "$RUNNER_TEMP/OH2P-1.62.2-firmware-candidate.zip" "$RUNNER_TEMP/OH2P-FIRMWARE-SHA256SUMS"
