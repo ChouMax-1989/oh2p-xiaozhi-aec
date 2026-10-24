@@ -115,4 +115,4 @@ WorldCup 写入 `_aml_dtb` 时涉及解密，写后回读不能直接与加密�
 
 本次已完成官方文件下载、hash、分段与rootfs静态核查；构建候选的解包检查由生成器执行。未执行当前音箱刷写、分区修改、恢复测试或新候选的实机/声学验收。
 
-候选构建及重新解包检查已于 2026-10-24 [通过 GitHub Actions](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/actions/runs/40103097025)。这不包含音箱刷写验收。
+候选构建及重新解包检查已于 2026-10-24 [通过 GitHub Actions](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/actions/runs/40103311378)。这不包含音箱刷写验收。
