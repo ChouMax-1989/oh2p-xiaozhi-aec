@@ -22,7 +22,7 @@ jobs:
         run: sudo bash firmware/build.sh --public-default --out "$RUNNER_TEMP/oh2p-firmware"
       - name: Package clearly marked candidate
         run: |
-          cp docs/FIRMWARE.md "$RUNNER_TEMP/oh2p-firmware/release/READ-ME-FIRST.md"
+          sudo cp docs/FIRMWARE.md "$RUNNER_TEMP/oh2p-firmware/release/READ-ME-FIRST.md"
           cd "$RUNNER_TEMP/oh2p-firmware/release"
           zip -9 "$RUNNER_TEMP/OH2P-1.62.2-firmware-candidate.zip" boot.img.encrypt dtb.img.encrypt root-original.squashfs root-ssh-candidate.squashfs firmware-manifest.json SHA256SUMS READ-ME-FIRST.md
           cd "$RUNNER_TEMP"

@@ -104,7 +104,7 @@ def manifest(directory, mode):
             "patch_source_commit": "9fc56179fbdde610e95755a843615669dece0d08",
             "squashfs_tools": "4.7.5", "ssh_auth_mode": mode,
             "public_default_password": "open-xiaoai" if mode == "public" else None,
-            "ssh_private_keys_included": False, "device_dump_used": False,
+            "candidate_ssh_private_keys_included": False, "device_dump_used": False,
             "files": {p.name: {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
                       for p in sorted(directory.iterdir()) if p.is_file()}}
     (directory / "firmware-manifest.json").write_text(json.dumps(data, indent=2)+"\n")
