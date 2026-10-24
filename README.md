@@ -1,50 +1,43 @@
-# OH2P 小智：AEC、连续对话与插话
+# 让 OH2P 小爱音箱用上小智
 
-这是一套把小米小爱音箱 Pro（OH2P）接到小智的完整改版：音箱负责采音、AEC 回声消除和播放，NAS 或 Linux 主机上的 Docker 服务负责唤醒识别及小智连接。
+对音箱说 **“你好小智”**，就能开始聊天。支持连续问答、播报时插话，以及开始和结束提示音。音箱使用原有的回声消除，增强音频中断时会自动尝试恢复。
 
-这里包含边端程序、服务端修改、Docker 构建文件和安装脚本，保留了实际使用的 AEC 与对话修改。安装后自行绑定小智账号，公开配置默认唤醒词为 **“你好小智”**。
+**直接下载现成安装包即可，不需要编译代码，也不需要安装 Python。** 每个人安装后绑定自己的小智账号。
 
-## 有哪些功能
+## 下载
 
-- 复用 OH2P 固件里的 VPM 声学处理，向小智提供 AEC 增强音频。
-- 音箱保持单路底层采音，唤醒和对话共用增强流。
-- 实时会话中，音箱播报时仍保持上行，支持说话插入当前回复。
-- 插话时取消云端当前回复，并停止音箱端已经排队的播放；正常播报结束保留尾音。
-- 会话准备好时播放开始提示音，实际结束时播放结束提示音；默认静默约 20 秒退出。
-- 原始采音仍在、增强回调连续 5 秒停止时，重设现有 VPM 状态尝试恢复；恢复失败最多每 30 秒重试一次。
+当前版本：[v2026.10.24.1 下载页](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/tag/v2026.10.24.1)。普通安装需要前三个文件：
 
-默认启用整套实时功能，需配合本仓库的音箱端一起安装。首次配对保留上游身份生成和绑定流程，见[部署说明](docs/DEPLOYMENT.md)。
-
-## 需要什么
-
-- OH2P，固件 **1.62.2**，已经能够通过 SSH 登录；本项目不提供刷机流程。
-- 能运行 Docker Compose 的 NAS 或 Linux 主机，音箱能够连接该主机。
-- 自己的小智账号和可用网络。
-- 音箱原有的 `libvpm.so` 和本机提示音资源。固件库不在本仓库分发。
-
-其他型号、固件和声卡布局不在已确认范围内。安装脚本会检查关键条件，遇到不匹配应先排查，不能靠跳过检查继续安装。
-
-## 从哪里开始
-
-1. 按[部署说明](docs/DEPLOYMENT.md)启动 Docker，安装音箱端并绑定自己的小智账号。
-2. 按[验收清单](docs/VERIFICATION.md)确认 AEC、播放取消和实际对话。
-3. 唤醒或对话异常时，按[排错说明](docs/TROUBLESHOOTING.md)区分服务连接、增强音频和云端问题。
-
-需要自行构建边端程序时使用 `sh edge/build.sh`；音箱上通过 `edge/install.sh` 安装。服务器构建与配置入口见 [server/README.md](server/README.md)。
-
-## 验证到哪一步
-
-旧的同源 AEC 路线已由用户验证过连续对话和打断。本次增强流故障可通过现有 VPM 接口恢复，修复部署后用户确认唤醒可用。服务端实时接线、播放取消、提示音生命周期和断流恢复逻辑做过相应测试。
-
-这些结果不等于当前公开包已经在每台设备上验收。当前组合的长时间稳定性、整机重启恢复、所有网络故障场景，以及公开安装流程在全新设备上的端到端结果仍需验证。5 秒检测是恢复措施，VPM 停止增强输出的确切触发原因尚未确定。
-
-## 目录
-
-| 位置 | 内容 |
+| 文件 | 用在哪里 |
 | --- | --- |
-| `edge/` | 音箱客户端、AEC owner、增强流 reader、构建与安装脚本 |
-| `server/` | 固定版本上游基础、实时会话接线、RPC 修改、配置样例与测试 |
-| `docker-compose.yml` | Docker 服务与持久化配置 |
-| `docs/` | 部署、运行原理、验收及排错 |
+| [NAS 安装包：oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-easy-install.zip) | 解压到 NAS，里面已经放好启动文件和空白账号配置 |
+| [Docker 镜像：oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-nas-amd64.tar.gz) | 导入 NAS 的 Docker，适用于 Intel/AMD 64 位主机 |
+| [音箱安装包：oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-speaker.tar.gz) | 上传到已经开启 SSH 的 OH2P 音箱 |
+| [OH2P 固件下载与 SSH 准备](docs/FIRMWARE.md) | 还没有 SSH，或需要核对固件时查看 |
 
-音频链路和改动边界见[运行原理](docs/ARCHITECTURE.md)。本仓库基于 [open-xiaoai](https://github.com/idootop/open-xiaoai) 和 [xiaoai-agent](https://github.com/stevenjoezhang/xiaoai-agent) 的相关实现；各部分按所附许可证使用，固件内的专有库需从设备原环境提供。
+**已经是 OH2P 1.62.2、能用 SSH 登录的音箱，不用重新刷机。** 音箱安装包是附加程序；官方原厂固件本身不等于已经开启 SSH。
+
+## 安装前准备
+
+- 一台小米小爱音箱 Pro，型号 **OH2P**，固件 **1.62.2**，可以用 SSH 登录。
+- 一台 Intel/AMD 64 位 NAS 或 Linux 主机，已经安装 Docker 和 Docker Compose。
+- NAS 和音箱在同一局域网，能正常上网。
+- 自己的小智账号。
+
+按[小白安装步骤](docs/DEPLOYMENT.md)操作：下载 → 导入 NAS 镜像 → 安装音箱 → 启动 → 绑定账号。每一步都写明了在哪个设备执行、正常会看到什么。
+
+## 装好以后
+
+1. 说“你好小智”，听到开始提示音后提问。
+2. 可以接着问下一句，也可以在音箱说话时插话。
+3. 保持安静约 20 秒，会话结束并播放结束提示音；下次再说唤醒词即可。
+
+配置默认是“你好小智”，没有附带任何人的账号、设备绑定或验证码。第一次使用时，按音箱提示绑定自己的小智账号。
+
+## 使用情况
+
+同源 AEC 路线曾由用户验证过连续对话和打断，增强音频修复后也确认可以唤醒。当前版本的长期稳定性、全新设备安装、首次绑定和整机重启等仍需按[验收清单](docs/VERIFICATION.md)确认。
+
+遇到问题看[排错说明](docs/TROUBLESHOOTING.md)。需要了解实现或自行修改代码，再看[运行原理](docs/ARCHITECTURE.md)、[服务端源码说明](server/README.md)和[音箱端构建说明](edge/BUILD.md)。
+
+项目保留了实际使用的 AEC、连续采音、实时对话、插话、提示音，以及 5 秒增强断流恢复修改。基于 [open-xiaoai](https://github.com/idootop/open-xiaoai) 和 [xiaoai-agent](https://github.com/stevenjoezhang/xiaoai-agent) 的相关实现，许可证见 [NOTICE.md](NOTICE.md)；设备固件中的专有库不随附加安装包分发。

@@ -11,6 +11,14 @@ function fail(message) { print "ALSA: " message > "/dev/stderr"; bad=1 }
     if (clean ~ /^[ \t]*pcm[.]Capture[ \t]*[{][ \t]*$/) { if (block!="") fail("nested pcm declaration"); block="capture"; cap_blocks++; depth=0 }
     if (block=="mic") {
         if (clean ~ /^[ \t]*type[ \t]+plug[ \t]*$/) mic_plug++
+        # The verified, clean official 1.62.2 OTA uses this direct Capture
+        # reference. Expand only that exact known field when requested.
+        if (clean ~ /^[ \t]*slave[.]pcm[ \t]+"?Capture"?[ \t]*$/) {
+            if (mode=="configure") {
+                text="    slave.pcm {\n        type hw\n        card 0\n        device 0\n    }"
+                mic_slave++; mic_hw++; mic_card++; mic_device++
+            } else fail("stock mico_record shares Capture; pass --configure-alsa to isolate it on hw:0,0")
+        }
         if (clean ~ /^[ \t]*slave[.]pcm[ \t]*[{][ \t]*$/) mic_slave++
         if (clean ~ /^[ \t]*type[ \t]+hw[ \t]*$/) mic_hw++
         if (clean ~ /^[ \t]*card[ \t]+0[ \t]*$/) mic_card++

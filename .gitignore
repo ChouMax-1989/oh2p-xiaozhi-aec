@@ -12,3 +12,4 @@ build/
 *.pem
 data/
 edge/build/
+dist/

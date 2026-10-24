@@ -1,0 +1,57 @@
+name: Build downloadable packages
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (YYYY.MM.DD.N)
+        required: true
+        default: '2026.10.24.1'
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate version and public source
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]
+          python tools/check_public.py
+          python -m unittest discover -s tools -p test_package_release.py -v
+          sh edge/tests/test-alsa-routes.sh
+      - name: Build and test without cloud or speaker access
+        run: |
+          docker build --target test -t oh2p-release-tests ./server
+          docker run --rm --network none oh2p-release-tests
+          docker build --target runtime -t "oh2p-xiaozhi-aec:$RELEASE_VERSION" ./server
+      - name: Create install packages and export image
+        run: |
+          python tools/package_release.py --version "$RELEASE_VERSION"
+          docker save "oh2p-xiaozhi-aec:$RELEASE_VERSION" | gzip -1 > dist/oh2p-xiaozhi-nas-amd64.tar.gz
+          test "$(stat -c %s dist/oh2p-xiaozhi-nas-amd64.tar.gz)" -lt 2147483648
+          (cd dist && sha256sum oh2p-xiaozhi-easy-install.zip oh2p-xiaozhi-speaker.tar.gz oh2p-xiaozhi-nas-amd64.tar.gz > SHA256SUMS)
+      - name: Verify saved image can be imported
+        run: |
+          docker image rm "oh2p-xiaozhi-aec:$RELEASE_VERSION"
+          docker load -i dist/oh2p-xiaozhi-nas-amd64.tar.gz
+          docker run --rm --network none --entrypoint python "oh2p-xiaozhi-aec:$RELEASE_VERSION" -c 'import open_xiaoai_server, onnxruntime, sherpa_onnx; assert hasattr(open_xiaoai_server, "playback_control")'
+      - name: Publish tested downloads
+        run: |
+          cat > /tmp/release-notes.md <<'NOTES'
+          这次提供直接安装的下载包，不需要自行编译。
+
+          1. NAS 下载 `oh2p-xiaozhi-nas-amd64.tar.gz` 和 `oh2p-xiaozhi-easy-install.zip`，按首页说明导入 Docker 并启动。
+          2. 已有 SSH 的 OH2P 1.62.2 下载 `oh2p-xiaozhi-speaker.tar.gz`。这是音箱程序安装包，不是可刷入分区的整机固件。
+          3. 默认唤醒词“你好小智”，每个人自行绑定自己的小智账号，包内无个人配对资料。
+
+          镜像在干净环境构建，通过离线测试，并验证了导出后的 Docker 文件可以重新导入。支持 x86-64 / amd64 NAS；ARM NAS 请勿使用这个镜像包。整机固件准备与下载见 docs/FIRMWARE.md。
+          NOTES
+          gh release create "v$RELEASE_VERSION" --target "$GITHUB_SHA" --title "现成安装包 $RELEASE_VERSION" --notes-file /tmp/release-notes.md
+          gh release upload "v$RELEASE_VERSION" dist/oh2p-xiaozhi-easy-install.zip dist/oh2p-xiaozhi-speaker.tar.gz dist/oh2p-xiaozhi-nas-amd64.tar.gz dist/SHA256SUMS
