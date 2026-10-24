@@ -13,3 +13,4 @@ build/
 data/
 edge/build/
 dist/
+firmware/out/
