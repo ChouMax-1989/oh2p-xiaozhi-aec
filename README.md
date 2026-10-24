@@ -13,9 +13,11 @@
 | [NAS 安装包：oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-easy-install.zip) | 解压到 NAS，里面已经放好启动文件和空白账号配置 |
 | [Docker 镜像：oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-nas-amd64.tar.gz) | 导入 NAS 的 Docker，适用于 Intel/AMD 64 位主机 |
 | [音箱安装包：oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-speaker.tar.gz) | 上传到已经开启 SSH 的 OH2P 音箱 |
-| [OH2P 固件下载与 SSH 准备](docs/FIRMWARE.md) | 还没有 SSH，或需要核对固件时查看 |
+| [OH2P 1.62.2 现机脱敏固件](docs/LIVE-FIRMWARE.md) | 需要含 SSH 的系统准备文件时优先查看；公开重打包尚未刷机验收 |
 
 **已经是 OH2P 1.62.2、能用 SSH 登录的音箱，不用重新刷机。** 音箱安装包是附加程序；官方原厂固件本身不等于已经开启 SSH。
+
+现机脱敏固件保留实际使用的声音和启动配置，排除账号、Wi-Fi 与设备专属数据；来源镜像使用正常，不代表公开包已在新机刷写通过。原厂包和旧候选见[固件资料](docs/FIRMWARE.md)。
 
 ## 安装前准备
 

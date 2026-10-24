@@ -17,6 +17,8 @@ jobs:
         run: python tools/check_public.py
       - name: Python syntax
         run: python -m compileall -q server
+      - name: Firmware copy sanitization tests
+        run: python -m unittest discover -s firmware -p test_sanitize_live.py -v
       - name: Realtime state tests
         run: PYTHONPATH=server/app python -m unittest discover -s server/tests -p test_realtime.py -v
       - name: Reader protocol tests

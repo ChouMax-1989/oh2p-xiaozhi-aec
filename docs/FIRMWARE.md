@@ -1,14 +1,21 @@
 # OH2P 1.62.2 固件下载与准备
 
-已有 **中国版 OH2P 1.62.2 + SSH + `/data/init.sh` 启动钩子** 的音箱，直接安装本项目应用包即可，不需要重刷。下面提供真实原厂下载与干净 SSH 补丁候选生成器；应用安装包不是整机固件。**新生成的 SSH 候选尚未在音箱刷写验证，也没有改动当前家用音箱。**
+已有 **中国版 OH2P 1.62.2 + SSH + `/data/init.sh` 启动钩子** 的音箱，直接安装本项目应用包即可，不需要重刷。
+
+需要固件时，优先查看[实际使用系统的脱敏固件包](LIVE-FIRMWARE.md)。它从正在使用的音箱只读提取系统，只处理副本中的登录密码和 SSH 密钥，保留现有声音与启动配置。**来源镜像在原音箱使用正常，脱敏重打包尚未在新机刷写验收，也未刷回原音箱。**
+
+本页保留官方原厂文件、兼容说明和旧候选构建资料。应用安装包仍按[小白安装步骤](DEPLOYMENT.md)单独安装。
 
 ## 先选你需要的文件
 
 - **已经能 SSH 登录 1.62.2 音箱**：不用刷机，直接看[小白安装步骤](DEPLOYMENT.md)。
+- **需要现有使用方案的系统文件**：看[现机提取脱敏版下载与说明](LIVE-FIRMWARE.md)。其中系统来自现机，配套 boot 和设备树来自官方同版 1.62.2；不含账号、Wi-Fi、校准和设备身份数据。
 - **只需要小米原厂固件**：使用下方官方链接。原厂包不能直接让音箱接入小智。
-- **有刷机经验，需要开放 SSH 的新候选**：[下载 OH2P-1.62.2-firmware-candidate.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/firmware-1.62.2-candidate-20261024/OH2P-1.62.2-firmware-candidate.zip)。它已通过干净构建和重新解包检查，尚未刷机验收；不熟悉分区刷写的新手先不要使用。
+- **需要研究旧的原厂重建方式**：[历史候选 OH2P-1.62.2-firmware-candidate.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/firmware-1.62.2-candidate-20261024/OH2P-1.62.2-firmware-candidate.zip)。它保留作历史备选，不作为主要固件下载入口；尚未刷机验收。
 
-候选的 SSH 登录用户名是 `root`，公开默认密码是 `open-xiaoai`，不属于你的个人密码。它没有强制改密功能，也不能保证直接执行 `passwd` 可持久改密。只用于可信内网；需要专属访问控制时使用下方公钥模式构建。ZIP 中的 `root-original.squashfs` 是未改动的官方恢复材料；删除预置 SSH 密钥的检查仅针对 `root-ssh-candidate.squashfs`。
+下面关于候选生成器和 `root-original.squashfs` 的内容，只适用于旧的原厂重建候选，不是现机脱敏包的文件清单。
+
+历史候选的 SSH 登录用户名是 `root`，公开默认密码是 `open-xiaoai`，不属于你的个人密码。它没有强制改密功能，也不能保证直接执行 `passwd` 可持久改密。只用于可信内网；需要专属访问控制时使用下方公钥模式构建。旧候选 ZIP 中的 `root-original.squashfs` 是未改动的官方恢复材料；删除预置 SSH 密钥的检查仅针对 `root-ssh-candidate.squashfs`。
 
 ## 官方原厂包：可直接下载，不含本项目 SSH 补丁
 
@@ -49,7 +56,7 @@ sha256sum mico_all_616cd9d93_1.62.2.bin
 - [xiaoai-agent Releases](https://github.com/stevenjoezhang/xiaoai-agent/releases) 提供的是 Agent 程序，没有现成 OH2P 1.62.2 SSH 镜像。其[固定修订部署说明](https://github.com/stevenjoezhang/xiaoai-agent/blob/9fc56179fbdde610e95755a843615669dece0d08/deploy/README.md)要求从当前源码重新制作 rootfs。
 - [Open-XiaoAI OH2P 1.58.6 Release](https://github.com/idootop/open-xiaoai/releases/tag/OH2P_1.58.6) 确实有另一版本的预构建 rootfs。它不能用来满足本项目的1.62.2要求，也不能只因同为OH2P就混刷。
 
-## 干净 SSH 候选生成器
+## 历史备选：从原厂包生成 SSH 候选
 
 仓库提供 [firmware/build.sh](../firmware/build.sh) 与 [firmware/prepare.py](../firmware/prepare.py)。它只从上述官方 OTA 构建，不读取音箱、设备 dump、账号缓存、Wi-Fi、`/data`、语音、日志或现有 SSH 私钥，也不执行刷机。
 
