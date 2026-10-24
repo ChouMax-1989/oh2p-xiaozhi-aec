@@ -1,0 +1,83 @@
+{
+  "snapshot": "oh2p-xiaozhi-aec-20261024",
+  "owner_source_base": "https://github.com/ChouMax-1989/oh2p-family-voice-firmware-source/tree/2ab6b4e2c3226389877fc3d0f50ebb0756ea3fda",
+  "owner_includes_later_stream_health": true,
+  "owner_features": [],
+  "target": "armv7-unknown-linux-gnueabihf.2.25",
+  "client_upstream_revision": "bc3396c64e2a435f354eb5cb12a203981f1fe422",
+  "client_upstream_archive_sha256": "26f26b367746ce438721e23ca87f97f508431e93dfe04a0fc6db616e276d584e",
+  "client_binary_source_equivalence_proven": false,
+  "source_hash_format": "UTF-8 LF bytes",
+  "source_files": {
+    "aec/preserved/vpm-owner/build.rs": {
+      "bytes": 803,
+      "sha256": "c611b8dce93a45e4eca909406be8ca8289df7c4d90de6eaab4e580ca91448b88"
+    },
+    "aec/preserved/vpm-owner/Cargo.lock": {
+      "bytes": 166,
+      "sha256": "7bf8a59972e7b26e7afd3cad2296bf98b6f6d8bb889b8a101840c522bf385ffa"
+    },
+    "aec/preserved/vpm-owner/Cargo.toml": {
+      "bytes": 756,
+      "sha256": "8932f0b35c7040e3b8884695c48ad9776a3fc1719313d127f149b18d9ab18778"
+    },
+    "aec/preserved/vpm-owner/README.md": {
+      "bytes": 1768,
+      "sha256": "f59810fd48137c9ee92b6814e6d0f44be6f00597d9dfe69f690488056c07dcd5"
+    },
+    "aec/preserved/vpm-owner/src/acoustic_probe.rs": {
+      "bytes": 34878,
+      "sha256": "908329c5b2079ff0adbbfd98051c4d7ae9bb28b5af43e24de16ab02a3269ca68"
+    },
+    "aec/preserved/vpm-owner/src/acoustic_probe_metrics.rs": {
+      "bytes": 28141,
+      "sha256": "1a01bae76d6764ee381e78625c48e59cfcee6494df697c3712686d7731fa92c9"
+    },
+    "aec/preserved/vpm-owner/src/main.rs": {
+      "bytes": 59202,
+      "sha256": "86ff75beaab36758905ec75131518f952aa42ecff11ee82e1d78c0fb6d20e4b8"
+    },
+    "aec/preserved/vpm-owner/src/native_trial.rs": {
+      "bytes": 2382,
+      "sha256": "01102e923c34bf0fcc191f5de45ef100bd9c54b25691bbe1065ee76852c93987"
+    },
+    "aec/preserved/vpm-owner/src/native_trial_protocol.rs": {
+      "bytes": 1049,
+      "sha256": "0dadddfb3ed5906d7619c86b63b04f152062944a1c1fddbecca47eebb9ab96fa"
+    },
+    "aec/preserved/vpm-owner/src/render_aec.rs": {
+      "bytes": 45601,
+      "sha256": "a7377c0d3091c48ac82567eb48fa1d6dc4b12ecedab573e1744fc8b286142902"
+    },
+    "aec/preserved/vpm-owner/src/stream_health.rs": {
+      "bytes": 2187,
+      "sha256": "ad1a7bbbe28d08f8101e483125e4c375fe7ea0f08ffd682d57df988582fd2111"
+    },
+    "aec/reader/Cargo.lock": {
+      "bytes": 155,
+      "sha256": "97eb25f984bb3c9faa93b873d371f009204ffb8c1c90a7fa6d3bb3c37031d512"
+    },
+    "aec/reader/Cargo.toml": {
+      "bytes": 143,
+      "sha256": "7715825e7308afae3dddee85f47e64369cc5ee4e7cff624f7a8292e2948d4cb6"
+    },
+    "aec/reader/src/main.rs": {
+      "bytes": 5721,
+      "sha256": "226f00d0b2a7ac491ca840563fe367164f5cb9670fdc624ababb801ca5aa946c"
+    }
+  },
+  "prebuilt": {
+    "arecord": {
+      "bytes": 330848,
+      "sha256": "59ef949f3006315e25e84d54e9fd405555b31909bdbeea14b188a1d530b86ceb"
+    },
+    "client": {
+      "bytes": 899040,
+      "sha256": "7c19a777bf4bbadb305dd44beb29b344708a35a70923f803ba896542ba5fea20"
+    },
+    "vpm-owner": {
+      "bytes": 455948,
+      "sha256": "6bd85e6bdb7c9ad61b30a7f667c9037be2eb68a80a69417cea1ff28142bbc042"
+    }
+  }
+}

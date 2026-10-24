@@ -11,3 +11,4 @@ build/
 *.key
 *.pem
 data/
+edge/build/

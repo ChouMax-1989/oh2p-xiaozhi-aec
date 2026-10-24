@@ -20,7 +20,9 @@ jobs:
       - name: Realtime state tests
         run: PYTHONPATH=server/app python -m unittest discover -s server/tests -p test_realtime.py -v
       - name: Reader protocol tests
-        run: cargo test --locked --offline --manifest-path edge/aec/reader/Cargo.toml
+        run: |
+          cargo test --locked --offline --no-run --manifest-path edge/aec/reader/Cargo.toml
+          find edge/aec/reader/target/debug/deps -maxdepth 1 -type f -executable -name "fvsh_reader-*" -exec sudo {} \;
       - name: Owner unit tests
         run: cargo test --locked --offline --manifest-path edge/aec/preserved/vpm-owner/Cargo.toml
       - name: Shell syntax
