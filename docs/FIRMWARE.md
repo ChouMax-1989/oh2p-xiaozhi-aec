@@ -11,7 +11,7 @@
 - **已经能 SSH 登录 1.62.2 音箱**：不用刷机，直接看[小白安装步骤](DEPLOYMENT.md)。
 - **需要现有使用方案的系统文件**：看[现机提取脱敏版下载与说明](LIVE-FIRMWARE.md)。其中系统来自现机，配套 boot 和设备树来自官方同版 1.62.2；不含账号、Wi-Fi、校准和设备身份数据。
 - **只需要小米原厂固件**：使用下方官方链接。原厂包不能直接让音箱接入小智。
-- **需要研究旧的原厂重建方式**：[历史候选 OH2P-1.62.2-firmware-candidate.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/firmware-1.62.2-candidate-20261024/OH2P-1.62.2-firmware-candidate.zip)。它保留作历史备选，不作为主要固件下载入口；尚未刷机验收。
+- **旧的原厂重建候选**：`firmware-1.62.2-candidate-20261024` 仅留作历史构建记录，**不用于本教程安装，请勿下载它来替代现机脱敏版**。下面的生成器资料只供研究旧构建方式。
 
 下面关于候选生成器和 `root-original.squashfs` 的内容，只适用于旧的原厂重建候选，不是现机脱敏包的文件清单。
 

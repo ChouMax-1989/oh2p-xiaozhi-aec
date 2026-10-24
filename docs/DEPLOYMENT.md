@@ -2,7 +2,11 @@
 
 这份教程使用现成安装包，全程不用编译代码，也不用安装 Python。先准备好 NAS 和音箱，再绑定自己的小智账号。
 
-**适用设备：OH2P 音箱，固件 1.62.2，已经能通过 SSH 登录；NAS 为 Intel/AMD 64 位，已安装 Docker 和 Docker Compose。** 已符合条件的音箱不用刷机。还没有 SSH 的，先看[固件下载与 SSH 准备](FIRMWARE.md)，完成后再回来。
+**适用设备：OH2P 音箱，固件 1.62.2，已经能通过 SSH 登录；NAS 为 Intel/AMD 64 位，已安装 Docker 和 Docker Compose。** 已符合条件的音箱不用刷机。还没有 SSH 的，先看[音箱系统准备说明](LIVE-FIRMWARE.md)，完成后再回来；公开固件尚未重新刷机验收，不是新手一键刷机包。
+
+本教程只用下面列出的三个 **2026.10.24.1** 安装包。不要下载 `candidate` 旧候选，也不要把固件 ZIP 当成音箱程序安装。已经装好的人不要重新覆盖 `data/config.py`。
+
+你会依次用到：**电脑下载 → NAS 导入镜像 → 电脑上传音箱程序 → 音箱安装 → NAS 启动 → 音箱重启 → 网页绑定**。每一步都标了操作位置。
 
 教程里只有两个地址要换成自己的：
 
@@ -19,7 +23,7 @@
 2. [oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-nas-amd64.tar.gz)：Docker 镜像，**不用解压**。
 3. [oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-speaker.tar.gz)：音箱程序，先留在电脑上，**不用解压**。
 
-下载页里自动生成的 `Source code` 是源码，普通安装不用下载。
+下载页里自动生成的 `Source code` 是源码，普通安装不用下载。`SHA256SUMS` 是下载完整性校验文件，不是安装程序；不需要把它导入 Docker 或上传音箱。
 
 ## 第二步：把镜像导入 NAS
 

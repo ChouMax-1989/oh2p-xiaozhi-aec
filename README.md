@@ -4,29 +4,47 @@
 
 **直接下载现成安装包即可，不需要编译代码，也不需要安装 Python。** 每个人安装后绑定自己的小智账号。
 
-## 下载
+## 第一次安装，从这里开始
 
-当前版本：[v2026.10.24.1 下载页](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/tag/v2026.10.24.1)。普通安装需要前三个文件：
+先看你的音箱属于哪种情况：
 
-| 文件 | 用在哪里 |
+| 你的情况 | 先做什么 |
 | --- | --- |
-| [NAS 安装包：oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-easy-install.zip) | 解压到 NAS，里面已经放好启动文件和空白账号配置 |
-| [Docker 镜像：oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-nas-amd64.tar.gz) | 导入 NAS 的 Docker，适用于 Intel/AMD 64 位主机 |
-| [音箱安装包：oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-speaker.tar.gz) | 上传到已经开启 SSH 的 OH2P 音箱 |
-| [OH2P 1.62.2 现机脱敏固件](docs/LIVE-FIRMWARE.md) | 需要含 SSH 的系统准备文件时优先查看；公开重打包尚未刷机验收 |
+| OH2P **1.62.2，已经能用 SSH 登录** | **不用刷机**，下载下面三个安装包 |
+| 没有 SSH，或不清楚固件版本 | 先看[音箱系统准备说明](docs/LIVE-FIRMWARE.md)，准备好后再安装。SSH 就是从电脑登录音箱执行命令的方式 |
+| 已经装好并绑定，只想继续使用 | 不用重新安装；保留 NAS 的 `data/config.py`，里面有你的设备绑定信息 |
 
-**已经是 OH2P 1.62.2、能用 SSH 登录的音箱，不用重新刷机。** 音箱安装包是附加程序；官方原厂固件本身不等于已经开启 SSH。
+### ① 先下载这三个文件
 
-现机脱敏固件保留实际使用的声音和启动配置，排除账号、Wi-Fi 与设备专属数据；来源镜像使用正常，不代表公开包已在新机刷写通过。原厂包和旧候选见[固件资料](docs/FIRMWARE.md)。
+三个都要下载，版本统一为 **2026.10.24.1**。NAS 需要是 Intel/AMD 64 位；这里的 Docker 包不适用于 ARM NAS。
 
-## 安装前准备
+| 顺序 | 点击下载 | 下载后怎么处理 |
+| --- | --- | --- |
+| 1 | [NAS 启动文件：oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-easy-install.zip) | 解压到 NAS，得到 `oh2p-xiaozhi` 文件夹 |
+| 2 | [NAS Docker 镜像：oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-nas-amd64.tar.gz) | 不解压，上传到上述文件夹，按教程导入 Docker |
+| 3 | [音箱程序：oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-speaker.tar.gz) | 不解压，先放在电脑上，按教程上传到音箱 |
 
-- 一台小米小爱音箱 Pro，型号 **OH2P**，固件 **1.62.2**，可以用 SSH 登录。
-- 一台 Intel/AMD 64 位 NAS 或 Linux 主机，已经安装 Docker 和 Docker Compose。
-- NAS 和音箱在同一局域网，能正常上网。
-- 自己的小智账号。
+**普通安装不用下载 `Source code`，也不用下载带 `candidate` 字样的旧候选固件。** 音箱程序包不是刷机文件，Docker 镜像也不能刷到音箱里。
 
-按[小白安装步骤](docs/DEPLOYMENT.md)操作：下载 → 导入 NAS 镜像 → 安装音箱 → 启动 → 绑定账号。每一步都写明了在哪个设备执行、正常会看到什么。
+### ② 照教程安装
+
+打开 **[小白安装步骤](docs/DEPLOYMENT.md)**，从第一步顺着做，不用自己编译。NAS 和音箱放在同一局域网，NAS 先安装 Docker 和 Docker Compose。
+
+顺序是：**NAS 导入镜像 → 电脑上传音箱程序并安装 → 启动 NAS 服务 → 重启音箱一次**。教程逐步标明在哪台设备输入命令，以及成功时会看到什么。
+
+### ③ 绑定你自己的小智账号
+
+1. 打开 [xiaozhi.me](https://xiaozhi.me/)，登录，创建或选择智能体，进入设备绑定入口。
+2. 对音箱说 **“你好小智”**，把本次生成的验证码填到网站上。没有听到验证码时，按[绑定步骤](docs/DEPLOYMENT.md#第五步绑定自己的小智账号)从 NAS 查看。
+3. 绑定后再说“你好小智”并提问。还提示未绑定时，按教程重启 NAS 的 `server` 服务后再试。
+
+验证码不是固定的，不用找作者索取。不要删除或用空白文件覆盖 NAS 的 `data/config.py`，否则可能丢失本机绑定信息。
+
+### 只有需要准备音箱系统时，才看固件
+
+[OH2P 1.62.2 现机脱敏固件：说明与下载](docs/LIVE-FIRMWARE.md)来自实际使用的系统，保留声音和启动配置。**脱敏后的公开包尚未重新刷机验收**；它不是一键安装包，也不是上面三个文件的替代品。不熟悉分区刷写时，先不要刷，已有 SSH 的音箱更不需要为安装小智而重刷。
+
+旧的 `firmware-1.62.2-candidate-20261024` 只保留作历史构建资料，**不用于本教程安装**。更多原厂文件与技术资料放在[固件资料页](docs/FIRMWARE.md)。
 
 ## 装好以后
 
