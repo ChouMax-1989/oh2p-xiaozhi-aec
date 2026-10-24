@@ -30,4 +30,4 @@ cargo test --locked --offline --manifest-path edge/aec/reader/Cargo.toml
 cargo test --locked --offline --manifest-path edge/aec/preserved/vpm-owner/Cargo.toml
 ```
 
-Cargo 完整测试需要 Linux（Unix socket 与 root socket所有权检查）；Windows 可独立执行 `rustc --test edge/aec/preserved/vpm-owner/src/stream_health.rs` 和 `native_trial_protocol.rs`。编译或协议测试不证明音箱的声学效果、真人连续对话、插话和长期稳定性。
+Cargo 完整测试需要 Linux，reader 的 socket 测试须在 root 容器内运行（检查 root socket 所有权）；Windows 可独立执行 `rustc --test edge/aec/preserved/vpm-owner/src/stream_health.rs` 和 `native_trial_protocol.rs`。编译或协议测试不证明音箱的声学效果、真人连续对话、插话和长期稳定性。
