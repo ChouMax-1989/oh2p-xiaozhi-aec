@@ -1,0 +1,158 @@
+--- a/examples/xiaozhi/src/lib.rs
++++ b/examples/xiaozhi/src/lib.rs
+@@ -13,9 +13,9 @@
+ fn on_output_data(py: Python, data: Py<PyBytes>) -> PyResult<Bound<PyAny>> {
+     let bytes = data.as_bytes(py).to_vec();
+     pyo3_async_runtimes::tokio::future_into_py(py, async move {
+-        let _ = MessageManager::instance()
++        MessageManager::instance()
+             .send_stream("play", bytes, None)
+-            .await;
++            .await.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+         Ok(())
+     })
+ }
+@@ -46,11 +46,34 @@
+     })
+ }
+ 
++
++#[pyfunction]
++fn playback_control(py: Python, action: String) -> PyResult<Bound<PyAny>> {
++    let (command, payload) = match action.as_str() {
++        "stop" => ("stop_play", None),
++        "start" => ("start_play", Some(json!({
++            "pcm": "noop", "channels": 1, "bits_per_sample": 16,
++            "sample_rate": 24000, "period_size": 360, "buffer_size": 1440
++        }))),
++        _ => return Err(pyo3::exceptions::PyValueError::new_err("invalid playback action")),
++    };
++    pyo3_async_runtimes::tokio::future_into_py(py, async move {
++        let res = RPC::instance().call_remote(command, payload, Some(3000)).await
++            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
++        if res.code.unwrap_or(0) != 0 {
++            return Err(pyo3::exceptions::PyRuntimeError::new_err(
++                res.msg.unwrap_or_else(|| "playback RPC failed".into())));
++        }
++        Ok(())
++    })
++}
++
+ #[pymodule]
+ fn open_xiaoai_server(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
+     m.add_function(wrap_pyfunction!(start_server, &m)?)?;
+     m.add_function(wrap_pyfunction!(on_output_data, &m)?)?;
+     m.add_function(wrap_pyfunction!(run_shell, &m)?)?;
++    m.add_function(wrap_pyfunction!(playback_control, &m)?)?;
+     crate::python::init_module(&m)?;
+     Ok(())
+ }
+--- a/examples/xiaozhi/src/server.rs
++++ b/examples/xiaozhi/src/server.rs
+@@ -17,7 +17,9 @@
+ pub struct AppServer;
+ 
+ async fn test() -> Result<(), AppError> {
++    if std::env::var("OH2P_QUIET_CONNECT").as_deref() != Ok("1") {
+     SpeakerManager::play_text("已连接").await?;
++    }
+ 
+     let _ = RPC::instance()
+         .call_remote(
+--- a/packages/client-rust/src/services/connect/rpc.rs
++++ b/packages/client-rust/src/services/connect/rpc.rs
+@@ -3,7 +3,7 @@
+ use std::future::Future;
+ use std::sync::{Arc, LazyLock};
+ use tokio::sync::{oneshot, Mutex, RwLock};
+-use tokio::time::{timeout, Duration};
++use tokio::time::Duration;
+ use uuid::Uuid;
+ 
+ use crate::base::AppError;
+@@ -115,15 +115,27 @@
+             payload,
+         };
+ 
+-        send_request(request).await?;
+-
+         {
+             let mut pending = self.pending_requests.lock().await;
+             pending.insert(uid.clone(), tx);
+         }
+ 
++        // One deadline covers sending and receiving. Store String, not
++        // non-Send AppError, across the cleanup await.
+         let timeout_duration = Duration::from_millis(timeout_millis.unwrap_or(10 * 1000));
+-        match timeout(timeout_duration, rx).await {
++        let deadline = tokio::time::Instant::now() + timeout_duration;
++        let send_error = match tokio::time::timeout_at(deadline, send_request(request)).await {
++            Ok(Ok(())) => None,
++            Ok(Err(error)) => Some(error.to_string()),
++            Err(_) => Some("request timeout".to_string()),
++        };
++        if let Some(error) = send_error {
++            self.pending_requests.lock().await.remove(&uid);
++            return Err(error.into());
++        }
++
++
++        match tokio::time::timeout_at(deadline, rx).await {
+             Ok(Ok(response)) => Ok(response),
+             Ok(Err(_)) => {
+                 let mut pending = self.pending_requests.lock().await;
+@@ -148,3 +160,43 @@
+         handlers.get(event).cloned()
+     }
+ }
++// Append to patched packages/client-rust/src/services/connect/rpc.rs.
++#[cfg(test)]
++mod pending_order_tests {
++    use super::*;
++
++    #[tokio::test]
++    async fn immediate_response_is_not_lost() {
++        let rpc = Arc::new(RPC::new());
++        let receiver = rpc.clone();
++        rpc.init(move |request| {
++            let receiver = receiver.clone();
++            async move {
++                receiver.on_response(Response { id: request.id, ..Response::success() }).await;
++                Ok(())
++            }
++        }).await;
++        let result = rpc.call_remote("stop_play", None, Some(100)).await;
++        assert!(result.is_ok());
++        assert!(rpc.pending_requests.lock().await.is_empty());
++    }
++
++    #[tokio::test]
++    async fn failed_send_removes_pending() {
++        let rpc = RPC::new();
++        rpc.init(|_| async { Err("synthetic send failure".into()) }).await;
++        assert!(rpc.call_remote("stop_play", None, Some(100)).await.is_err());
++        assert!(rpc.pending_requests.lock().await.is_empty());
++    }
++
++    #[tokio::test]
++    async fn stalled_send_has_deadline_and_cleans_pending() {
++        let rpc = RPC::new();
++        rpc.init(|_| async { std::future::pending::<Result<(), AppError>>().await }).await;
++        let result = tokio::time::timeout(Duration::from_millis(200),
++            rpc.call_remote("stop_play", None, Some(20))).await;
++        assert!(result.is_ok());
++        assert!(result.unwrap().is_err());
++        assert!(rpc.pending_requests.lock().await.is_empty());
++    }
++}
+--- a/examples/xiaozhi/xiaozhi/xiaozhi.py
++++ b/examples/xiaozhi/xiaozhi/xiaozhi.py
+@@ -113,6 +113,8 @@
+ 
+         # 初始化音频编解码器
+         self._initialize_audio()
++        from xiaozhi.realtime_overlay import install
++        self.realtime_session = install(self)
+ 
+         # 设置协议回调
+         self.protocol.on_network_error = self._on_network_error

@@ -1,0 +1,6 @@
+{
+  "examples/xiaozhi/src/lib.rs": "fbc6c12d0e2bcd63a9ecb9d70b93ce01b5a41b69fd3406461b9da89d7b56bee2",
+  "examples/xiaozhi/src/server.rs": "b1e128001b105cb3f89d77b94c17b25b6ccd433aaebd4c6526390c43e363e19c",
+  "packages/client-rust/src/services/connect/rpc.rs": "9bc19f1e2d8a271ef1648cc3e133aead1bfcde64b0b2083f1acf8ecb58f7b45b",
+  "examples/xiaozhi/xiaozhi/xiaozhi.py": "542cbe03f877c8dd1e08b7b59057c877c320ab1d362033055dd7bedd22859801"
+}

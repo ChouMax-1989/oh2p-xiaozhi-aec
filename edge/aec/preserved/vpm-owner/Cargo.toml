@@ -1,0 +1,26 @@
+[package]
+name = "family-voice-vpm-owner"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-or-later"
+
+[features]
+# Passive, request-scoped observations only; never enables or replaces AEC.
+acoustic-probe = []
+# The production candidate uses the official fixed-point libspeexdsp archive
+# supplied by the ARM image/toolchain. The default feature remains offline
+# source-compatible and does not silently claim that a system .so is present.
+speexdsp-static = []
+# Host-only probe for the ignored synthetic test; never use for an OH2P
+# release because system .so presence is not a deployment proof.
+speexdsp-dynamic-test = []
+
+[[bin]]
+name = "vpm-owner"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

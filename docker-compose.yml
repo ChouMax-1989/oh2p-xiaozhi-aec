@@ -1,0 +1,28 @@
+services:
+  server:
+    image: oh2p-xiaozhi-public:local
+    platform: linux/amd64
+    build:
+      context: ./server
+      target: runtime
+    restart: unless-stopped
+    ports:
+      - "${SERVER_BIND_ADDRESS:-0.0.0.0}:${SERVER_PORT:-4399}:4399"
+    volumes:
+      - type: bind
+        source: ./data/config.py
+        target: /app/config.py
+        bind:
+          create_host_path: false
+    environment:
+      OH2P_REALTIME: ${OH2P_REALTIME:-1}
+      OH2P_AEC_READY: ${OH2P_AEC_READY:-1}
+      OH2P_CANCEL_READY: ${OH2P_CANCEL_READY:-1}
+      OH2P_QUIET_CONNECT: ${OH2P_QUIET_CONNECT:-1}
+    cpus: 2
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

@@ -1,0 +1,17 @@
+--- a/packages/client-rust/src/services/audio/record.rs
++++ b/packages/client-rust/src/services/audio/record.rs
+@@ -130,11 +130,9 @@
+ }
+ 
+ fn capture_config_for_recording(requested: &AudioConfig) -> AudioConfig {
+-    let mut capture = requested.clone();
+-    if requested.bits_per_sample == 16 {
+-        capture.bits_per_sample = A113_CAPTURE_BITS_PER_SAMPLE;
+-    }
+-    capture
++    // FVSH1 already supplies VPM-enhanced S16_LE. The private arecord adapter
++    // deliberately rejects raw ALSA S32_LE requests.
++    requested.clone()
+ }
+ 
+ fn transform_stream_chunk(

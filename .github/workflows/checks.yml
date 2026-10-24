@@ -1,0 +1,36 @@
+name: Source checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Public export checks
+        run: python tools/check_public.py
+      - name: Python syntax
+        run: python -m compileall -q server
+      - name: Realtime state tests
+        run: PYTHONPATH=server/app python -m unittest discover -s server/tests -p test_realtime.py -v
+      - name: Reader protocol tests
+        run: cargo test --locked --offline --manifest-path edge/aec/reader/Cargo.toml
+      - name: Owner unit tests
+        run: cargo test --locked --offline --manifest-path edge/aec/preserved/vpm-owner/Cargo.toml
+      - name: Shell syntax
+        run: find edge server -name '*.sh' -print0 | xargs -0 -r -n1 sh -n
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build clean public server and test dependencies
+        run: docker build --target test -t oh2p-xiaozhi-tests ./server
+      - name: Offline integration tests
+        run: docker run --rm --network none oh2p-xiaozhi-tests

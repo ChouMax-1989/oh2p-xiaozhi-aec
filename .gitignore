@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.env
+server/config.py
+state/
+logs/
+*.log
+**/target/
+edge/out/
+build/
+*.key
+*.pem
+data/
