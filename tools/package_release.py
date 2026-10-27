@@ -15,7 +15,7 @@ import re
 import tarfile
 import zipfile
 
-DEFAULT_VERSION = "2026.10.24.1"
+DEFAULT_VERSION = "2026.10.27.1"
 EASY_NAME = "oh2p-xiaozhi-easy-install.zip"
 SPEAKER_NAME = "oh2p-xiaozhi-speaker.tar.gz"
 IMAGE_NAME = "oh2p-xiaozhi-nas-amd64.tar.gz"
@@ -123,6 +123,12 @@ def instructions(version):
 适用：已有 SSH 的 OH2P 1.62.2 音箱，以及支持 Linux amd64 镜像的 NAS Docker。
 这是现有固件的附加软件包，不是整机固件，不刷写固件。使用者无需安装 Python 或编译源码。
 
+已装旧版：只下载新版 NAS 镜像，导入后将原 docker-compose.yml 的 image 改为
+oh2p-xiaozhi-aec:{version}，再执行 docker compose up -d --no-deps server。
+保留原 data/config.py、.env、端口和其他设置；不要把本 ZIP 解压覆盖旧目录。
+本次不用重装音箱或刷固件。完整升级步骤见仓库 docs/DEPLOYMENT.md。
+
+下面是第一次安装的步骤：
 1. 从同一 Release 下载本 ZIP、oh2p-xiaozhi-nas-amd64.tar.gz、
    oh2p-xiaozhi-speaker.tar.gz 和 SHA256SUMS，核对下载文件 SHA256。
 2. 解压本 ZIP。把 NAS 镜像放在解压得到的 oh2p-xiaozhi 文件夹旁边。

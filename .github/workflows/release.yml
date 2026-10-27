@@ -5,7 +5,7 @@ on:
       version:
         description: Release version (YYYY.MM.DD.N)
         required: true
-        default: '2026.10.24.1'
+        default: '2026.10.27.1'
 permissions:
   contents: read
 jobs:
@@ -45,13 +45,15 @@ jobs:
       - name: Publish tested downloads
         run: |
           cat > /tmp/release-notes.md <<'NOTES'
-          这次提供直接安装的下载包，不需要自行编译。
+          本版包含唤醒等待、重复唤醒和空闲断线重连修复，不需要自行编译。
+
+          已安装旧版的人只需更新 NAS 镜像和原 docker-compose.yml 的 image 版本。保留自己的 data/config.py、.env 和自定义配置，不用重装音箱或刷固件。升级步骤见仓库 docs/DEPLOYMENT.md。
 
           1. NAS 下载 `oh2p-xiaozhi-nas-amd64.tar.gz` 和 `oh2p-xiaozhi-easy-install.zip`，按首页说明导入 Docker 并启动。
           2. 已有 SSH 的 OH2P 1.62.2 下载 `oh2p-xiaozhi-speaker.tar.gz`。这是音箱程序安装包，不是可刷入分区的整机固件。
           3. 默认唤醒词“你好小智”，每个人自行绑定自己的小智账号，包内无个人配对资料。
 
-          镜像在干净环境构建，通过离线测试，并验证了导出后的 Docker 文件可以重新导入。支持 x86-64 / amd64 NAS；ARM NAS 请勿使用这个镜像包。整机固件准备与下载见 docs/FIRMWARE.md。
+          镜像在干净环境构建，通过离线测试，并验证了导出后的 Docker 文件可以重新导入。支持 x86-64 / amd64 NAS；ARM NAS 请勿使用这个镜像包。整机固件准备与下载见 docs/LIVE-FIRMWARE.md。默认唤醒词仍为“你好小智”；本版没有修改声纹识别或采样率。
           NOTES
-          gh release create "v$RELEASE_VERSION" --target "$GITHUB_SHA" --title "现成安装包 $RELEASE_VERSION" --notes-file /tmp/release-notes.md
+          gh release create "v$RELEASE_VERSION" --draft --target "$GITHUB_SHA" --title "【当前安装包】NAS + 音箱安装包 $RELEASE_VERSION" --notes-file /tmp/release-notes.md
           gh release upload "v$RELEASE_VERSION" dist/oh2p-xiaozhi-easy-install.zip dist/oh2p-xiaozhi-speaker.tar.gz dist/oh2p-xiaozhi-nas-amd64.tar.gz dist/SHA256SUMS
