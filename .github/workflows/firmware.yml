@@ -31,6 +31,6 @@ jobs:
         run: |
           tag=firmware-1.62.2-candidate-20261024
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --prerelease --latest=false --target "$GITHUB_SHA" --title '【历史资料·请勿用于安装】旧 OH2P 固件候选' --notes '此版只保留历史构建资料，不用于当前安装教程。请从仓库首页选择当前应用安装包；需要固件时查看 docs/LIVE-FIRMWARE.md 的现机脱敏版。此旧候选尚未刷机验收。'
+            gh release create "$tag" --draft --prerelease --latest=false --target "$GITHUB_SHA" --title '历史固件构建资料' --notes '仅供开发查阅，不公开为安装入口。'
           fi
           gh release upload "$tag" "$RUNNER_TEMP/OH2P-1.62.2-firmware-candidate.zip" "$RUNNER_TEMP/OH2P-FIRMWARE-SHA256SUMS"

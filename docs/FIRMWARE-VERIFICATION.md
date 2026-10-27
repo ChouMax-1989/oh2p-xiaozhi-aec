@@ -10,8 +10,8 @@
 
 ## 下载哪个
 
-- 发布页：[firmware-1.62.2-live-sanitized-20261024](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/tag/firmware-1.62.2-live-sanitized-20261024)
-- 文件：[OH2P-1.62.2-live-sanitized.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/firmware-1.62.2-live-sanitized-20261024/OH2P-1.62.2-live-sanitized.zip)
+- 发布页：[最新版下载](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/latest)
+- 文件：[OH2P-1.62.2-live-sanitized.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/latest/download/OH2P-1.62.2-live-sanitized.zip)
 
 这个文件用于准备音箱系统。NAS 的 Docker 镜像、NAS 安装包和音箱小智程序仍从[应用安装教程](DEPLOYMENT.md)下载。
 
