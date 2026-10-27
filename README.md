@@ -27,17 +27,17 @@
 | --- | --- |
 | OH2P **1.62.2，已经能用 SSH 登录** | **不用刷机**，下载下面三个安装包 |
 | 没有 SSH，或不清楚固件版本 | 先看[音箱系统准备说明](docs/LIVE-FIRMWARE.md)，准备好后再安装。SSH 就是从电脑登录音箱执行命令的方式 |
-| 已经装好并绑定，只想继续使用 | 不用重新安装；保留 NAS 的 `data/config.py`，里面有你的设备绑定信息 |
+| 已经装好，想更新 NAS 服务 | 按[老用户升级步骤](docs/DEPLOYMENT.md#老用户升级)只更新 NAS 镜像，保留现有配置；不用重装音箱或刷固件 |
 
 ### ① 先下载这三个文件
 
-三个都要下载，版本统一为 **2026.10.24.1**。NAS 需要是 Intel/AMD 64 位；这里的 Docker 包不适用于 ARM NAS。
+三个都要下载，版本统一为 **2026.10.27.1**。NAS 需要是 Intel/AMD 64 位；这里的 Docker 包不适用于 ARM NAS。
 
 | 顺序 | 点击下载 | 下载后怎么处理 |
 | --- | --- | --- |
-| 1 | [NAS 启动文件：oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-easy-install.zip) | 解压到 NAS，得到 `oh2p-xiaozhi` 文件夹 |
-| 2 | [NAS Docker 镜像：oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-nas-amd64.tar.gz) | 不解压，上传到上述文件夹，按教程导入 Docker |
-| 3 | [音箱程序：oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-speaker.tar.gz) | 不解压，先放在电脑上，按教程上传到音箱 |
+| 1 | [NAS 启动文件：oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.27.1/oh2p-xiaozhi-easy-install.zip) | 解压到 NAS，得到 `oh2p-xiaozhi` 文件夹 |
+| 2 | [NAS Docker 镜像：oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.27.1/oh2p-xiaozhi-nas-amd64.tar.gz) | 不解压，上传到上述文件夹，按教程导入 Docker |
+| 3 | [音箱程序：oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.27.1/oh2p-xiaozhi-speaker.tar.gz) | 不解压，先放在电脑上，按教程上传到音箱 |
 
 **普通安装不用下载 `Source code`，也不用下载带 `candidate` 字样的旧候选固件。** 音箱程序包不是刷机文件，Docker 镜像也不能刷到音箱里。
 

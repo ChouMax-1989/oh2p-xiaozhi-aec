@@ -4,7 +4,7 @@
 
 **适用设备：OH2P 音箱，固件 1.62.2，已经能通过 SSH 登录；NAS 为 Intel/AMD 64 位，已安装 Docker 和 Docker Compose。** 已符合条件的音箱不用刷机。还没有 SSH 的，先看[音箱系统准备说明](LIVE-FIRMWARE.md)，完成后再回来；公开固件尚未重新刷机验收，不是新手一键刷机包。
 
-本教程只用下面列出的三个 **2026.10.24.1** 安装包。不要下载 `candidate` 旧候选，也不要把固件 ZIP 当成音箱程序安装。已经装好的人不要重新覆盖 `data/config.py`。
+本教程的首次安装使用下面列出的三个 **2026.10.27.1** 安装包。不要下载 `candidate` 旧候选，也不要把固件 ZIP 当成音箱程序安装。已经装好的人请看[老用户升级](#老用户升级)，不要重新覆盖配置。
 
 你会依次用到：**电脑下载 → NAS 导入镜像 → 电脑上传音箱程序 → 音箱安装 → NAS 启动 → 音箱重启 → 网页绑定**。每一步都标了操作位置。
 
@@ -17,11 +17,11 @@
 
 ## 第一步：在电脑上下载三个文件
 
-打开 [v2026.10.24.1 下载页](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/tag/v2026.10.24.1)，下载：
+打开 [v2026.10.27.1 下载页](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/tag/v2026.10.27.1)，下载：
 
-1. [oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-easy-install.zip)：NAS 启动文件。
-2. [oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-nas-amd64.tar.gz)：Docker 镜像，**不用解压**。
-3. [oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.24.1/oh2p-xiaozhi-speaker.tar.gz)：音箱程序，先留在电脑上，**不用解压**。
+1. [oh2p-xiaozhi-easy-install.zip](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.27.1/oh2p-xiaozhi-easy-install.zip)：NAS 启动文件。
+2. [oh2p-xiaozhi-nas-amd64.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.27.1/oh2p-xiaozhi-nas-amd64.tar.gz)：Docker 镜像，**不用解压**。
+3. [oh2p-xiaozhi-speaker.tar.gz](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.27.1/oh2p-xiaozhi-speaker.tar.gz)：音箱程序，先留在电脑上，**不用解压**。
 
 下载页里自动生成的 `Source code` 是源码，普通安装不用下载。`SHA256SUMS` 是下载完整性校验文件，不是安装程序；不需要把它导入 Docker 或上传音箱。
 
@@ -42,7 +42,7 @@ docker load -i oh2p-xiaozhi-nas-amd64.tar.gz
 等它完成。正常会看到：
 
 ```text
-Loaded image: oh2p-xiaozhi-aec:2026.10.24.1
+Loaded image: oh2p-xiaozhi-aec:2026.10.27.1
 ```
 
 看到这行后，镜像就已导入。先不要启动，继续安装音箱。后面写的“NAS 终端”命令，都在这个有 `docker-compose.yml` 的文件夹里执行。
@@ -150,6 +150,27 @@ docker compose restart server
 | 查看最近错误 | `docker compose logs --tail=100 server` |
 
 要改唤醒词，在 NAS 上打开 `data/config.py`，找到 `"keywords": ["你好小智"]`，只修改引号里的唤醒词，保存后重启服务即可。其他设置先保持默认。
+
+## 老用户升级
+
+升级只需要更新 NAS 上的 Docker 镜像，并把原有 `docker-compose.yml` 中 `server` 的 `image` 版本改为 `2026.10.27.1`。保留原来的 `data/config.py`、`.env`、端口和所有自定义设置；不要解压新安装包覆盖配置，也不用重装音箱程序或刷固件。升级会重建 NAS 服务，建议等当前对话结束后再操作。
+
+**操作位置：NAS 文件管理器和 NAS 终端。** 在电脑下载 [v2026.10.27.1 的 NAS Docker 镜像](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/download/v2026.10.27.1/oh2p-xiaozhi-nas-amd64.tar.gz)，上传到原来放 `docker-compose.yml` 的文件夹。编辑原有 compose 文件时，只改 `server` 下 `image` 行的版本，例如：
+
+```yaml
+image: oh2p-xiaozhi-aec:2026.10.27.1
+```
+
+保留原来的 compose 文件及其他内容。进入该文件夹，在 NAS 终端执行：
+
+```sh
+docker load -i oh2p-xiaozhi-nas-amd64.tar.gz
+docker compose up -d --no-deps server
+docker compose ps
+docker compose images server
+```
+
+确认 `server` 状态为 `Up` 或 `running`，并且镜像版本显示为 `2026.10.27.1`。保留旧镜像 `oh2p-xiaozhi-aec:2026.10.24.1` 以便回退。若需回退，把原 compose 文件中 `image` 版本改回 `2026.10.24.1`，再执行 `docker compose up -d --no-deps server`。
 
 如果要撤销音箱安装，重新 SSH 登录音箱，执行：
 
