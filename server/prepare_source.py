@@ -34,6 +34,28 @@ def prepare(checkout):
     path.write_text(text, encoding="utf-8", newline="\n")
     shutil.copyfile(base / "app/realtime.py", app / "realtime.py")
     shutil.copyfile(base / "app/overlay.py", app / "realtime_overlay.py")
+    protocol = app / "services/protocols/websocket_protocol.py"
+    text = protocol.read_text(encoding="utf-8")
+    stages = [
+        ('import json', 'import json\nimport time'),
+        ('            await self._close_websocket()',
+         '            stamp = time.monotonic()\n            await self._close_websocket()\n'
+         '            print(f"OH2P connect close_ms={(time.monotonic()-stamp)*1000:.1f}", flush=True)'),
+        ('            self.websocket = await websockets.connect(',
+         '            stamp = time.monotonic()\n            self.websocket = await websockets.connect('),
+        ('            # 启动消息处理循环',
+         '            print(f"OH2P connect websocket_ms={(time.monotonic()-stamp)*1000:.1f}", flush=True)\n'
+         '            stamp = time.monotonic()\n            # 启动消息处理循环'),
+        ('                self.connected = True',
+         '                print(f"OH2P connect hello_ms={(time.monotonic()-stamp)*1000:.1f}", flush=True)\n'
+         '                self.connected = True'),
+    ]
+    for anchor, replacement in stages:
+        if text.count(anchor) != 1:
+            raise RuntimeError("connection timing hook mismatch")
+        text = text.replace(anchor, replacement, 1)
+    compile(text, str(protocol), "exec")
+    protocol.write_text(text, encoding="utf-8", newline="\n")
     rpc = checkout / "packages/client-rust/src/services/connect/rpc.rs"
     with rpc.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write((base / "patches/rpc_tests.rs").read_text(encoding="utf-8"))

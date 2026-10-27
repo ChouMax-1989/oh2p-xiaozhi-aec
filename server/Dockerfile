@@ -60,4 +60,4 @@ FROM runtime AS test
 COPY . /release
 ENV PYTHONPATH=/release/app:/app
 WORKDIR /release/tests
-CMD ["python", "-B", "-m", "unittest", "-v", "test_realtime", "test_release", "test_wire", "test_overlay", "test_extension"]
+CMD ["python", "-B", "-m", "unittest", "-v", "test_realtime", "test_release", "test_wire", "test_overlay", "test_extension", "test_wakeup_pending"]

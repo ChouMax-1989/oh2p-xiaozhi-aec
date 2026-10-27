@@ -36,16 +36,22 @@ class RealtimeSession:
             self.speaking = False
             self.response_available = False
             self.response_aborted = False
+            started = time.monotonic()
             await self.playback.cancel()  # stop queued and physical playback
+            print(f"OH2P wake playback_stop_ms={(time.monotonic()-started)*1000:.1f}", flush=True)
             if not self.protocol.is_audio_channel_opened():
+                started = time.monotonic()
                 await self.protocol.open_audio_channel()
+                print(f"OH2P wake open_channel_ms={(time.monotonic()-started)*1000:.1f}", flush=True)
             if not self.protocol.is_audio_channel_opened():
                 return False
             if not self.protocol.session_id:
                 return False
+            started = time.monotonic()
             await self.protocol.send_abort_speaking("abort")
             # Upstream ListeningMode.ALWAYS_ON maps to wire mode realtime.
             await self.protocol.send_start_listening("always_on")
+            print(f"OH2P wake listen_send_ms={(time.monotonic()-started)*1000:.1f}", flush=True)
             self.session_id = self.protocol.session_id
             self.active = True
             self.last_activity = self.clock()

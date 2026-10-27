@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import time
 
 
 def install(app):
@@ -35,6 +36,8 @@ def install(app):
     workers = []
     controls = asyncio.Lock()
     session_open = False
+    wake_task = None
+    connection_lock = asyncio.Lock()
 
     async def play_cue(kind):
         # Reuse the Saturday device-local qplayer path; no TTS or PCM upload.
@@ -70,6 +73,9 @@ def install(app):
 
     async def stop(channel_open=True, expected_session=None, notify=True):
         nonlocal session_open
+        if expected_session is None and wake_task and wake_task is not asyncio.current_task() and not wake_task.done():
+            wake_task.cancel()
+            await asyncio.gather(wake_task, return_exceptions=True)
         async with controls:
             if expected_session is not None and (
                 state.session_id != expected_session or app.protocol.is_audio_channel_opened()
@@ -103,6 +109,7 @@ def install(app):
 
     async def wake():
         nonlocal session_open
+        started = time.monotonic()
         async with controls:
             await quiesce()
             try:
@@ -115,6 +122,7 @@ def install(app):
                     vad.resume("realtime_activity")
                     workers.extend((app.loop.create_task(sender()),
                                     app.loop.create_task(receiver())))
+                    print(f"OH2P wake ready total_ms={(time.monotonic()-started)*1000:.1f}", flush=True)
             except Exception:
                 state.active = False
                 app.set_device_state(DeviceState.IDLE)
@@ -153,6 +161,16 @@ def install(app):
             state.active = False
             task = app.loop.create_task(fn(*args))
             task.add_done_callback(report_failure)
+        app.loop.call_soon_threadsafe(dispatch)
+
+    def request_wake():
+        def dispatch():
+            nonlocal wake_task
+            if (wake_task is not None and not wake_task.done()) or state._current():
+                print("OH2P wake duplicate ignored", flush=True)
+                return
+            wake_task = app.loop.create_task(wake())
+            wake_task.add_done_callback(report_failure)
         app.loop.call_soon_threadsafe(dispatch)
 
     def enqueue(queue, item):
@@ -203,9 +221,37 @@ def install(app):
     app.protocol._handle_server_hello = hello
     old_connect = app.protocol.connect
     async def connect():
-        app.protocol.session_id = ""
-        return await old_connect()
+        async with connection_lock:
+            if app.protocol.is_audio_channel_opened() and app.protocol.session_id:
+                return True
+            app.protocol.session_id = ""
+            started = time.monotonic()
+            try:
+                return await old_connect()
+            finally:
+                print(f"OH2P connect total_ms={(time.monotonic()-started)*1000:.1f} ready={app.protocol.is_audio_channel_opened()}", flush=True)
     app.protocol.connect = connect
+
+    async def heartbeat():
+        # Repair a closed idle connection before the next wake. No listening or
+        # microphone upload here; serialize with foreground/startup connection.
+        while True:
+            delay = 1
+            try:
+                if not state.active and not (wake_task and not wake_task.done()):
+                    if not app.protocol.is_audio_channel_opened():
+                        await app.protocol.connect()
+                        if not app.protocol.is_audio_channel_opened():
+                            delay = 30
+                    else:
+                        await app.protocol.send_text(json.dumps({"session_id":"", "type":"ping"}))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                print("OH2P idle connection check failed", flush=True)
+                delay = 30
+            await asyncio.sleep(delay)
+    app.protocol.heartbeat = heartbeat
 
     old_tts = app._handle_tts_message
     def tts(data):
@@ -225,7 +271,7 @@ def install(app):
             data = app.audio_codec.read_audio()
             if data: enqueue(up, data)
     app._handle_input_audio = input_audio
-    EventManager.on_wakeup = lambda: request(wake)
+    EventManager.on_wakeup = request_wake
     EventManager.on_interrupt = lambda: request(stop)
     old_closed = app._on_audio_channel_closed
     async def stop_closed(session):
