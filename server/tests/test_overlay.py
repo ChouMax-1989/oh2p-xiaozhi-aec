@@ -96,6 +96,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
 
     async def test_cues_once_per_session_not_each_tts(self):
         await self.state.wake()
+        await self.settle()
         self.assertEqual(len(self.cues), 1)
         self.assertIn('multirounds_tone.opus', self.cues[0])
         self.tts('start'); await self.settle()
@@ -105,6 +106,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.cues), 2)
         self.assertIn('voip_off.opus', self.cues[1])
         await self.state.wake()
+        await self.settle()
         self.assertEqual(len(self.cues), 3)
         await self.state.cleanup()
         self.assertEqual(len(self.cues), 3)
@@ -112,6 +114,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
     async def test_idle_timeout_end_cue_and_failure_does_not_break_wake(self):
         self.fail_cue = True
         await self.state.wake()
+        await self.settle()
         self.assertTrue(self.state.active)
         self.fail_cue = False
         self.now = 20
@@ -120,6 +123,131 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.cues), 2)
         await self.state.tick()
         self.assertEqual(len(self.cues), 2)
+
+    async def test_slow_ready_cue_allows_first_audio_and_is_cancelled_on_stop(self):
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+        original = sys.modules["open_xiaoai_server"].run_shell
+
+        async def slow_ready(command, timeout):
+            if "multirounds_tone" in command:
+                entered.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    cancelled.set()
+            return await original(command, timeout)
+
+        with patch.object(sys.modules["open_xiaoai_server"], "run_shell", slow_ready):
+            EventManager.on_wakeup()
+            await asyncio.wait_for(entered.wait(), 0.5)
+            self.assertTrue(self.app.audio_codec.input_stream.is_active())
+            self.assertEqual(VAD.target, "realtime_activity")
+            self.app._handle_input_audio()
+            await self.settle()
+            self.assertIn([b"encoded"], self.sent)
+            await asyncio.wait_for(self.state.stop(), 0.5)
+            self.assertTrue(cancelled.is_set())
+            self.assertEqual(len(self.cues), 1)
+            self.assertIn("voip_off", self.cues[0])
+
+    async def test_stale_input_callbacks_cannot_fill_next_wakes_queue(self):
+        await self.state.wake()
+        callbacks = []
+        with patch.object(self.app.loop, "call_soon_threadsafe", side_effect=callbacks.append):
+            for _ in range(12):  # The uplink holds eight packets.
+                self.app._handle_input_audio()
+        await self.state.stop()
+        await self.state.wake()
+        for callback in callbacks:
+            callback()
+        await self.settle()
+        self.assertTrue(self.state.active)
+        self.assertNotIn([b"encoded"], self.sent)
+
+    async def test_failed_worker_cannot_stop_later_wake_on_same_connection(self):
+        for direction in ("upload", "playback"):
+            with self.subTest(direction=direction):
+                await self.state.wake()
+                if direction == "playback":
+                    self.tts("start")
+                    await self.settle()
+                entered, release = asyncio.Event(), asyncio.Event()
+
+                async def fail(_):
+                    entered.set()
+                    await release.wait()
+                    raise OSError("synthetic worker failure")
+
+                target, method = ((self.app.protocol, "send_audio") if direction == "upload"
+                                  else (sys.modules["open_xiaoai_server"], "on_output_data"))
+                with patch.object(target, method, fail):
+                    if direction == "upload":
+                        self.app._handle_input_audio()
+                    else:
+                        self.app._on_incoming_audio(b"old")
+                    await asyncio.wait_for(entered.wait(), 0.5)
+                    delayed = []
+                    with patch.object(self.app.loop, "call_soon_threadsafe", side_effect=delayed.append):
+                        release.set()
+                        await self.settle()
+                    self.assertEqual(len(delayed), 1)
+                previous = self.state.session_id
+                if direction == "playback":
+                    # Stop was dispatched, but its coroutine has not taken the lock.
+                    delayed[0]()
+                    await self.state.wake()
+                else:
+                    await self.state.stop()
+                    EventManager.on_wakeup()
+                    await self.settle()
+                    delayed[0]()
+                await self.settle()
+                self.assertEqual(self.state.session_id, previous)
+                self.assertTrue(self.state.active)
+                self.sent.clear()
+                self.app._handle_input_audio()
+                self.tts("start")
+                self.app._on_incoming_audio(b"new")
+                await self.settle()
+                self.assertIn([b"encoded"], self.sent)
+                self.assertEqual(self.rendered, [b"new"])
+                await self.state.stop()
+
+    async def test_full_queue_stops_current_wake(self):
+        await self.state.wake()
+        for _ in range(12):
+            self.app._handle_input_audio()
+        await self.settle()
+        self.assertFalse(self.state.active)
+        await self.settle()
+        self.assertEqual(self.app.device_state, DeviceState.IDLE)
+
+    async def test_delayed_barge_cannot_discard_next_wakes_first_reply(self):
+        await self.state.wake()
+        self.tts("start")
+        await self.settle()
+        entered, release = asyncio.Event(), asyncio.Event()
+        create_task = self.app.loop.create_task
+
+        def hold_task(coro):
+            async def delayed():
+                entered.set()
+                await release.wait()
+                await coro
+            return create_task(delayed())
+
+        with patch.object(self.app.loop, "create_task", side_effect=hold_task):
+            for _ in range(8):
+                VAD._handle_speech_frame(bytes(1024))
+            await self.settle()
+        self.assertTrue(entered.is_set())
+        await self.state.stop()
+        await self.state.wake()
+        self.tts("start")
+        self.app._on_incoming_audio(b"next reply")
+        release.set()
+        await self.settle()
+        self.assertEqual(self.rendered, [b"next reply"])
 
     async def test_failed_wakeup_has_no_ready_cue(self):
         self.fail_cancel = True

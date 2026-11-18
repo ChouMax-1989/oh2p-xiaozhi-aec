@@ -36,10 +36,13 @@ def install(app):
     workers = []
     controls = asyncio.Lock()
     session_open = False
+    wake_generation = 0  # One cloud connection can serve several local wakes.
     wake_task = None
     connection_lock = asyncio.Lock()
 
     async def play_cue(kind):
+        if kind == "ready" and not state._current():
+            return
         # Reuse the Saturday device-local qplayer path; no TTS or PCM upload.
         asset = {"ready": "multirounds_tone.opus", "end": "voip_off.opus"}[kind]
         command = "ubus -t 1 call qplayer play '" + json.dumps(
@@ -71,12 +74,17 @@ def install(app):
         clear(up)
         clear(down)
 
-    async def stop(channel_open=True, expected_session=None, notify=True):
+    async def stop(channel_open=True, expected_session=None, notify=True, expected_generation=None):
         nonlocal session_open
-        if expected_session is None and wake_task and wake_task is not asyncio.current_task() and not wake_task.done():
+        if (expected_generation is None and expected_session is None and wake_task
+                and wake_task is not asyncio.current_task() and not wake_task.done()):
             wake_task.cancel()
             await asyncio.gather(wake_task, return_exceptions=True)
         async with controls:
+            if expected_generation is not None and (
+                expected_generation != wake_generation or not session_open
+            ):
+                return
             if expected_session is not None and (
                 state.session_id != expected_session or app.protocol.is_audio_channel_opened()
             ):
@@ -93,44 +101,50 @@ def install(app):
                 if ended and notify:
                     await play_cue("end")
 
-    async def sender():
+    async def sender(generation):
         try:
             while True: await state.audio_input(await up.get())
         except asyncio.CancelledError: raise
-        except Exception: request(stop)
+        except Exception: request_stop(generation)
 
-    async def receiver():
+    async def receiver(generation):
         try:
             while True:
                 fn, args = await down.get()
                 await fn(*args)
         except asyncio.CancelledError: raise
-        except Exception: request(stop)
+        except Exception: request_stop(generation)
 
     async def wake():
-        nonlocal session_open
+        nonlocal session_open, wake_generation, speech_samples, barge_pending
         started = time.monotonic()
         async with controls:
+            wake_generation += 1
+            speech_samples = 0
+            barge_pending = False
             await quiesce()
             try:
                 app.audio_codec.temp_frames = b""
                 set_speech_frames([])
                 if await state.wakeup():
                     session_open = True
-                    await play_cue("ready")
                     app.set_device_state(DeviceState.LISTENING)
                     vad.resume("realtime_activity")
-                    workers.extend((app.loop.create_task(sender()),
-                                    app.loop.create_task(receiver())))
+                    workers.extend((app.loop.create_task(sender(wake_generation)),
+                                    app.loop.create_task(receiver(wake_generation)),
+                                    # Cancel unsent feedback along with this wake's audio.
+                                    app.loop.create_task(play_cue("ready"))))
                     print(f"OH2P wake ready total_ms={(time.monotonic()-started)*1000:.1f}", flush=True)
             except Exception:
                 state.active = False
                 app.set_device_state(DeviceState.IDLE)
                 raise
 
-    async def barge(epoch):
+    async def barge(epoch, generation):
         nonlocal barge_pending
         async with controls:
+            if generation != wake_generation:
+                return
             try:
                 if not state._current() or epoch != state.response_epoch:
                     return
@@ -142,7 +156,7 @@ def install(app):
                 clear(down)
                 await asyncio.wait_for(state.barge_in(epoch), timeout=4)
                 if state.active and len(workers) > 1:
-                    workers[1] = app.loop.create_task(receiver())
+                    workers[1] = app.loop.create_task(receiver(wake_generation))
             except Exception:
                 await quiesce()
                 app.set_device_state(DeviceState.IDLE)
@@ -152,14 +166,16 @@ def install(app):
 
     def report_failure(task):
         if not task.cancelled() and task.exception() is not None:
-            state.active = False
-            print("OH2P realtime control failed; capture disabled")
+            # The failing operation cleans up its own generation under controls.
+            print("OH2P realtime control failed", flush=True)
 
     # Controls bypass stalled PCM sends and first cancel all data workers.
-    def request(fn, *args):
+    def request_stop(generation=None):
         def dispatch():
+            if generation is not None and (generation != wake_generation or not state.active):
+                return
             state.active = False
-            task = app.loop.create_task(fn(*args))
+            task = app.loop.create_task(stop(expected_generation=generation))
             task.add_done_callback(report_failure)
         app.loop.call_soon_threadsafe(dispatch)
 
@@ -173,19 +189,21 @@ def install(app):
             wake_task.add_done_callback(report_failure)
         app.loop.call_soon_threadsafe(dispatch)
 
-    def enqueue(queue, item):
+    def enqueue(queue, item, generation):
         def put():
-            if not state._current(): return
+            if generation != wake_generation or not state._current(): return
             try: queue.put_nowait(item)
-            except asyncio.QueueFull: request(stop)
+            except asyncio.QueueFull: request_stop(generation)
         app.loop.call_soon_threadsafe(put)
 
     # Reuse Silero and its shared GlobalStream reader. Count S16 mono samples,
     # not bytes: 8*512 samples at 16kHz = 256ms confirmed speech. No PCM copy.
     old_speech = vad._handle_speech_frame
     old_silence = vad._handle_silence_frame
-    def activity(byte_count):
+    def activity(byte_count, generation):
         nonlocal speech_samples, speech_epoch, barge_pending
+        if generation != wake_generation:
+            return
         state.speech_activity()
         if not state._current():
             speech_samples = 0
@@ -197,18 +215,19 @@ def install(app):
         if (speech_samples >= vad.sample_rate * 250 / 1000 and
             state.response_available and not state.response_aborted and not barge_pending):
             barge_pending = True
-            task = app.loop.create_task(barge(state.response_epoch))
+            task = app.loop.create_task(barge(state.response_epoch, generation))
             task.add_done_callback(report_failure)
-    def reset_speech():
+    def reset_speech(generation):
         nonlocal speech_samples
-        speech_samples = 0
+        if generation == wake_generation:
+            speech_samples = 0
     def speech(frames):
         if vad.target == "realtime_activity":
-            app.loop.call_soon_threadsafe(activity, len(frames))
+            app.loop.call_soon_threadsafe(activity, len(frames), wake_generation)
         else: old_speech(frames)
     def silence(frames):
         if vad.target == "realtime_activity":
-            app.loop.call_soon_threadsafe(reset_speech)
+            app.loop.call_soon_threadsafe(reset_speech, wake_generation)
         else: old_silence(frames)
     vad._handle_speech_frame = speech
     vad._handle_silence_frame = silence
@@ -256,32 +275,31 @@ def install(app):
     old_tts = app._handle_tts_message
     def tts(data):
         if data.get("state") in ("start", "stop"):
-            enqueue(down, (state.incoming_json, (dict(data),)))
+            enqueue(down, (state.incoming_json, (dict(data),)), wake_generation)
         elif state._current() and data.get("session_id") == state.session_id:
             old_tts(data)
     app._handle_tts_message = tts
     old_stt = app._handle_stt_message
     def stt(data):
-        enqueue(down, (state.incoming_json, (dict(data),)))
+        enqueue(down, (state.incoming_json, (dict(data),)), wake_generation)
         old_stt(data)
     app._handle_stt_message = stt
-    app._on_incoming_audio = lambda data: enqueue(down, (state.audio_output, (data,)))
+    app._on_incoming_audio = lambda data: enqueue(down, (state.audio_output, (data,)), wake_generation)
     def input_audio():
+        generation = wake_generation
         if state._current():
             data = app.audio_codec.read_audio()
-            if data: enqueue(up, data)
+            if data: enqueue(up, data, generation)
     app._handle_input_audio = input_audio
     EventManager.on_wakeup = request_wake
-    EventManager.on_interrupt = lambda: request(stop)
+    EventManager.on_interrupt = request_stop
     old_closed = app._on_audio_channel_closed
-    async def stop_closed(session):
-        await stop(False, session)
     async def closed():
         was_active = state.active
         session = state.session_id
         state.active = False
         if was_active:
-            task = app.loop.create_task(stop_closed(session))
+            task = app.loop.create_task(stop(False, session, expected_generation=wake_generation))
             task.add_done_callback(report_failure)
         await old_closed()
     app._on_audio_channel_closed = closed
@@ -301,7 +319,7 @@ def install(app):
     async def tick():
         if state._current() and not state.speaking:
             if state.clock() - state.last_activity >= state.timeout:
-                await stop()
+                await stop(expected_generation=wake_generation)
     async def timer():
         while True:
             await asyncio.sleep(1)
