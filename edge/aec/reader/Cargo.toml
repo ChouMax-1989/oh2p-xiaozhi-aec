@@ -1,5 +1,6 @@
 [package]
 name = "fvsh-reader"
+default-run = "fvsh-reader"
 version = "0.1.0"
 edition = "2021"
 

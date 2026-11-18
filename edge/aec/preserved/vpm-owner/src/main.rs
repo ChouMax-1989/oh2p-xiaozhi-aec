@@ -23,6 +23,7 @@ mod render_aec;
 mod native_trial;
 mod native_trial_protocol;
 mod stream_health;
+mod tts_playback;
 #[cfg(feature = "acoustic-probe")]
 mod acoustic_probe;
 
@@ -751,8 +752,24 @@ fn run_vpm(options: &Options, sender: SyncSender<WakeEvent>) -> Result<(), Strin
     } else {
         Some(Instant::now() + Duration::from_secs(options.seconds))
     };
+    // Optional on older firmware. All VPM calls run on this owner thread.
+    use tts_playback::receiver::{Receiver as TtsReceiver, SetExternalState, SOCKET_PATH};
+    let mut tts = match unsafe { library.symbol::<SetExternalState>(c"vpm_set_external_state") }
+        .and_then(|set| {
+            TtsReceiver::bind(std::path::Path::new(SOCKET_PATH), move |code| unsafe { set(code) })
+                .map_err(|error| error.to_string())
+        }) {
+        Ok(receiver) => Some(receiver),
+        Err(error) => {
+            eprintln!("vpm-owner: playback notifications unavailable: {error}");
+            None
+        }
+    };
     if options.no_audio {
         while !should_stop(deadline) {
+            if let Some(receiver) = &mut tts {
+                receiver.poll();
+            }
             thread::sleep(Duration::from_millis(50));
         }
         return Ok(());
@@ -769,6 +786,7 @@ fn run_vpm(options: &Options, sender: SyncSender<WakeEvent>) -> Result<(), Strin
     run_audio_loop(
         vpm_process,
         vpm_set_status,
+        tts.as_mut(),
         asr_rx,
         shared_rx,
         options.wake_mode,
@@ -1152,6 +1170,7 @@ fn end_capture(
 fn run_audio_loop(
     vpm_process: VpmProcess,
     vpm_set_status: VpmSetStatus,
+    mut tts: Option<&mut tts_playback::receiver::Receiver>,
     asr_rx: Receiver<Vec<u8>>,
     shared_rx: Receiver<Vec<u8>>,
     wake_mode: WakeMode,
@@ -1240,6 +1259,9 @@ fn run_audio_loop(
     let mut stream_health = stream_health::StreamHealth::new(
         Instant::now(), ENHANCED_CALLBACK_COUNT.load(Ordering::Relaxed));
     while !should_stop(deadline) {
+        if let Some(receiver) = &mut tts {
+            receiver.poll();
+        }
         native_trial.poll(Instant::now());
         render_reference.poll(Instant::now());
         serve_shared_audio_requests(&shared_listener, &mut shared_peers);

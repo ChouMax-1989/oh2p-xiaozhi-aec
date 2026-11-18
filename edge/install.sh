@@ -32,9 +32,16 @@ WORK=/data/open-xiaoai
 [ ! -L "$WORK" ] && [ ! -L /data/init.sh ] || die 'Refusing symlinked install targets'
 for exe in /proc/[0-9]*/exe; do
     target=$(readlink "$exe" 2>/dev/null || true)
-    case "$target" in "$WORK/client"|"$WORK/aec/vpm-owner"|"$WORK/aec/bin/arecord") die 'Existing project processes are active; stop the old supervisor before installation';; esac
+    case "$target" in "$WORK/client"|"$WORK/aec/vpm-owner"|"$WORK/aec/bin/arecord"|"$WORK/aec/bin/aplay") die 'Existing project processes are active; stop the old supervisor before installation';; esac
 done
 (cd "$PACKAGE/prebuilt" && sha256sum -c SHA256SUMS)
+with_aplay=0
+if [ -e "$PACKAGE/prebuilt/aplay" ] || [ -L "$PACKAGE/prebuilt/aplay" ]; then
+    [ -f "$PACKAGE/prebuilt/aplay" ] && [ ! -L "$PACKAGE/prebuilt/aplay" ] || die 'Invalid project aplay'
+    aplay_sum=$(cd "$PACKAGE/prebuilt" && sha256sum aplay)
+    grep -Fqx "$aplay_sum" "$PACKAGE/prebuilt/SHA256SUMS" || die 'Project aplay checksum missing or invalid'
+    with_aplay=1
+fi
 STAMP=$(date +%Y%m%d-%H%M%S)-$$
 BACKUP=/data/oh2p-xiaozhi-backup-$STAMP
 STAGE=/data/oh2p-xiaozhi-stage-$STAMP
@@ -50,12 +57,19 @@ mkdir -p "$STAGE/work/aec/bin"
 cp "$PACKAGE/prebuilt/client" "$STAGE/work/client"
 cp "$PACKAGE/prebuilt/vpm-owner" "$STAGE/work/aec/vpm-owner"
 cp "$PACKAGE/prebuilt/arecord" "$STAGE/work/aec/bin/arecord"
+if [ "$with_aplay" = 1 ]; then
+    cp "$PACKAGE/prebuilt/aplay" "$STAGE/work/aec/bin/aplay"
+    chmod 755 "$STAGE/work/aec/bin/aplay"
+fi
 cp "$PACKAGE/boot-aec.sh" "$STAGE/work/boot.sh"
 cp "$PACKAGE/rollback.sh" "$STAGE/work/rollback.sh"
 printf '%s\n' "$URL" >"$STAGE/work/server.txt"
 printf '%s\n' "$BACKUP" >"$STAGE/work/backup-path"
 touch "$STAGE/work/enabled"
 (cd "$STAGE/work/aec" && sha256sum vpm-owner bin/arecord >SHA256SUMS)
+if [ "$with_aplay" = 1 ]; then
+    (cd "$STAGE/work/aec" && sha256sum bin/aplay >>SHA256SUMS)
+fi
 chmod 755 "$STAGE/work/client" "$STAGE/work/aec/vpm-owner" "$STAGE/work/aec/bin/arecord" "$STAGE/work/boot.sh" "$STAGE/work/rollback.sh"
 sha256sum "$STAGE/work/boot.sh" | awk '{print $1}' >"$BACKUP/installed-init.sha256"
 sha256sum "$STAGE/asound.conf" | awk '{print $1}' >"$BACKUP/installed-alsa.sha256"

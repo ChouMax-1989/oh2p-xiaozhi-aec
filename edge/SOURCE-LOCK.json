@@ -34,8 +34,8 @@
       "sha256": "1a01bae76d6764ee381e78625c48e59cfcee6494df697c3712686d7731fa92c9"
     },
     "aec/preserved/vpm-owner/src/main.rs": {
-      "bytes": 59202,
-      "sha256": "86ff75beaab36758905ec75131518f952aa42ecff11ee82e1d78c0fb6d20e4b8"
+      "bytes": 60109,
+      "sha256": "ed591c33dca204f024e87434c548242d5b7f6518084a118835c3b336ba7c90d1"
     },
     "aec/preserved/vpm-owner/src/native_trial.rs": {
       "bytes": 2382,
@@ -58,12 +58,24 @@
       "sha256": "97eb25f984bb3c9faa93b873d371f009204ffb8c1c90a7fa6d3bb3c37031d512"
     },
     "aec/reader/Cargo.toml": {
-      "bytes": 143,
-      "sha256": "7715825e7308afae3dddee85f47e64369cc5ee4e7cff624f7a8292e2948d4cb6"
+      "bytes": 171,
+      "sha256": "d795f4795531bd0254f7355d7fe586a611568518b75b3d72a7821969f060f102"
     },
     "aec/reader/src/main.rs": {
       "bytes": 5721,
       "sha256": "226f00d0b2a7ac491ca840563fe367164f5cb9670fdc624ababb801ca5aa946c"
+    },
+    "aec/preserved/vpm-owner/src/tts_playback.rs": {
+      "bytes": 15009,
+      "sha256": "0340a282b690934a434567a28989e5d2bbb60e53dd7ce7ca59b3b43d3da81ece"
+    },
+    "aec/reader/src/bin/aplay.rs": {
+      "bytes": 5606,
+      "sha256": "b330e03a9ef4d4cef0bd9d20fe917ab24a2940b9eba5dca447c75eb24075de47"
+    },
+    "aec/reader/src/playback_linux.rs": {
+      "bytes": 12828,
+      "sha256": "c84bce81d7d31caab562f4ae0797609ecf705167d789ef1764fbd302c629075f"
     }
   },
   "prebuilt": {
@@ -79,5 +91,6 @@
       "bytes": 455948,
       "sha256": "6bd85e6bdb7c9ad61b30a7f667c9037be2eb68a80a69417cea1ff28142bbc042"
     }
-  }
+  },
+  "playback_notifications": "Source build only. The archived speaker binaries listed under prebuilt predate playback notifications."
 }

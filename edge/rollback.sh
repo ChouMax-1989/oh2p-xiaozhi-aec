@@ -25,7 +25,7 @@ fi
 sleep 2
 for exe in /proc/[0-9]*/exe; do
     target=$(readlink "$exe" 2>/dev/null || true)
-    case "$target" in "$WORK/client"|"$WORK/aec/vpm-owner"|"$WORK/aec/bin/arecord") die 'Project processes still active; no configuration restored';; esac
+    case "$target" in "$WORK/client"|"$WORK/aec/vpm-owner"|"$WORK/aec/bin/arecord"|"$WORK/aec/bin/aplay") die 'Project processes still active; no configuration restored';; esac
 done
 mkdir -p /tmp/open-xiaoai
 chmod 700 /tmp/open-xiaoai
