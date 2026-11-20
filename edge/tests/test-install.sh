@@ -128,9 +128,15 @@ cp "$TEST_ROOT/original-sums" "$PACKAGE/prebuilt/SHA256SUMS"
 
 if [ "$real_process_checks" = 1 ]; then
     # The normal upgrade must refuse an active private process with no supervisor.
-    cp "$(command -v sleep)" "$WORK/aec/bin/aplay"
-    # Multicall coreutils selects sleep by argv[0], while /proc/exe records the copied path.
-    bash -c 'exec -a sleep "$1" 60' bash "$WORK/aec/bin/aplay" &
+    cc -x c -o "$WORK/aec/bin/aplay" - <<'EOF'
+#include <unistd.h>
+
+int main(void) {
+    sleep(60);
+    return 0;
+}
+EOF
+    "$WORK/aec/bin/aplay" &
     active_pid=$!
     attempts=0
     while [ "$(readlink "/proc/$active_pid/exe" 2>/dev/null || true)" != "$WORK/aec/bin/aplay" ]; do
@@ -138,6 +144,7 @@ if [ "$real_process_checks" = 1 ]; then
         [ "$attempts" -lt 10 ] || exit 1
         sleep 1
     done
+    kill -0 "$active_pid"
     reject_upgrade 'Existing project processes are active'
     kill -0 "$active_pid"
     kill "$active_pid"

@@ -36,6 +36,7 @@ jobs:
       - name: Shell syntax
         run: find edge server -name '*.sh' -print0 | xargs -0 -r -n1 sh -n
   container:
+    needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
