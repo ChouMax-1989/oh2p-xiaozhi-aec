@@ -21,7 +21,9 @@ class Playback:
     def __init__(self): self.events = []; self.queue = []
     async def cancel(self): self.queue.clear(); self.events.append("cancel")
     async def start(self): self.events.append("start")
-    async def write(self, data): self.queue.append(data)
+    async def write(self, data):
+        self.queue.append(data)
+        return 0.06
 
 
 class Tests(unittest.IsolatedAsyncioTestCase):

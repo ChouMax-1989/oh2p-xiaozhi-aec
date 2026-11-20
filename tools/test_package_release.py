@@ -56,7 +56,10 @@ class PackageRelease(unittest.TestCase):
             self.assertIn(f"{field}: ${{{field}:-1}}", text)
         for required in ("source: ./data/config.py", "target: /app/config.py", "create_host_path: false", "cpus: 2", "mem_limit: 1g", 'max-size: "5m"', 'max-file: "2"'):
             self.assertIn(required, text)
-        self.assertIn("docker load -i ../oh2p-xiaozhi-nas-amd64.tar.gz", self.easy["oh2p-xiaozhi/开始使用.txt"].decode())
+        instructions = self.easy["oh2p-xiaozhi/开始使用.txt"].decode()
+        self.assertIn("docker load -i oh2p-xiaozhi-nas-amd64.tar.gz", instructions)
+        self.assertIn("sh install.sh --upgrade", instructions)
+        self.assertIn(f"{release.SOURCE_REPOSITORY}/tree/v{release.DEFAULT_VERSION}#readme", instructions)
 
     def test_config_has_blank_identity_without_executing_it(self):
         config = self.easy["oh2p-xiaozhi/data/config.py"]
@@ -93,6 +96,14 @@ class PackageRelease(unittest.TestCase):
                 self.assertNotIn(b"\r\n", content)
             if name.endswith(".sh") or name in {"edge/prebuilt/" + item for item in release.PREBUILT}:
                 self.assertEqual(self.tar_modes[name], 0o755)
+
+    def test_speaker_audio_binaries_match_the_source_lock(self):
+        source_lock = json.loads((ROOT / "edge/SOURCE-LOCK.json").read_text())["prebuilt"]
+        self.assertEqual(set(source_lock), {"aplay", "arecord", "client", "vpm-owner"})
+        for name, metadata in source_lock.items():
+            data = self.speaker["edge/prebuilt/" + name]
+            self.assertEqual(len(data), metadata["bytes"], name)
+            self.assertEqual(hashlib.sha256(data).hexdigest(), metadata["sha256"], name)
 
     def test_deterministic_archives_and_optional_docker_image_checksum(self):
         before = {name: (self.output / name).read_bytes() for name in (release.EASY_NAME, release.SPEAKER_NAME)}

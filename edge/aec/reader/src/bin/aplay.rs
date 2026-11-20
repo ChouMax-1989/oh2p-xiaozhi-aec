@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Private PATH adapter for the client's raw PCM player.
+//! Private PATH player for the client's raw PCM, with playback-state notices.
 use std::time::{Duration, Instant};
 
 const HEARTBEAT: Duration = Duration::from_millis(500);
@@ -7,9 +7,9 @@ const TAIL_GUARD: Duration = Duration::from_millis(60);
 
 #[derive(Clone, Copy)]
 struct Format {
-    bytes_per_second: u64,
-    buffer: Duration,
-    period: Duration,
+    rate: u32,
+    buffer: u32,
+    period: u32,
 }
 
 impl Format {
@@ -20,71 +20,87 @@ impl Format {
         else {
             return None;
         };
-        let rate: u32 = rate.parse().ok()?;
-        let buffer: u32 = buffer.parse().ok()?;
-        let period: u32 = period.parse().ok()?;
-        if rate == 0 || period == 0 || period > buffer || buffer > rate {
+        let rate = rate.parse().ok()?;
+        let buffer = buffer.parse().ok()?;
+        let period = period.parse().ok()?;
+        if rate == 0 || rate > 192_000 || period == 0 || period >= buffer || buffer > rate {
             return None;
         }
         Some(Self {
-            bytes_per_second: u64::from(rate) * 2,
-            buffer: Duration::from_nanos(u64::from(buffer) * 1_000_000_000 / u64::from(rate)),
-            period: Duration::from_nanos(u64::from(period) * 1_000_000_000 / u64::from(rate)),
+            rate,
+            buffer,
+            period,
         })
-    }
-
-    fn byte_time(self, bytes: usize) -> Duration {
-        Duration::from_nanos(bytes as u64 * 1_000_000_000 / self.bytes_per_second)
     }
 }
 
+#[derive(Default)]
 struct Activity {
-    format: Format,
-    queued_until: Instant,
-    max_queue: Duration,
-    audible_until: Option<Instant>,
-    heartbeat: Instant,
+    // Number of accepted silent frames following the last audible frame. An
+    // ALSA delay at or below this count means that only silence can remain.
+    trailing_silence: Option<usize>,
+    heartbeat: Option<Instant>,
+    quiet_until: Option<Instant>,
+}
+
+fn has_sound(bytes: &[u8]) -> bool {
+    bytes.chunks_exact(2).any(|sample| sample != [0, 0])
 }
 
 impl Activity {
-    fn new(format: Format, pipe_bytes: usize, now: Instant) -> Self {
-        Self {
-            format,
-            queued_until: now,
-            max_queue: format.byte_time(pipe_bytes) + format.buffer + format.period,
-            audible_until: None,
-            heartbeat: now,
-        }
+    fn active(&self) -> bool {
+        self.heartbeat.is_some()
     }
 
-    // Called immediately before the bounded, atomic write to the ready pipe.
-    // In S16_LE silence both bytes are zero, including across split reads.
-    fn pcm(&mut self, bytes: &[u8], now: Instant) -> Option<bool> {
-        self.queued_until = (self.queued_until.max(now) + self.format.byte_time(bytes.len()))
-            .min(now + self.max_queue);
-        if let Some(last) = bytes.iter().rposition(|&b| b != 0) {
-            let trailing = self.format.byte_time(bytes.len() - 1 - last);
-            let end = self.queued_until - trailing + self.format.buffer + TAIL_GUARD;
-            if self.audible_until.replace(end).is_none() {
-                self.heartbeat = now + HEARTBEAT;
-                return Some(true);
+    fn queued_sound(&self) -> bool {
+        self.trailing_silence.is_some()
+    }
+
+    fn before_write(&mut self, audible: bool, now: Instant) -> bool {
+        if audible {
+            self.quiet_until = None;
+            if !self.active() {
+                self.heartbeat = Some(now + HEARTBEAT);
+                return true;
             }
         }
-        None
+        false
     }
 
-    fn deadline(&self) -> Option<Instant> {
-        self.audible_until.map(|end| end.min(self.heartbeat))
+    fn accepted(&mut self, bytes: &[u8]) {
+        let mut frames = bytes.chunks_exact(2);
+        let count = frames.len();
+        if let Some(index) = frames.rposition(|sample| sample != [0, 0]) {
+            self.trailing_silence = Some(count - index - 1);
+        } else if let Some(trailing) = &mut self.trailing_silence {
+            *trailing = trailing.saturating_add(count);
+        }
     }
 
-    fn tick(&mut self, now: Instant) -> Option<bool> {
-        let end = self.audible_until?;
-        if now >= end {
-            self.audible_until = None;
+    fn observe_delay(&mut self, frames: usize) {
+        if self
+            .trailing_silence
+            .is_some_and(|trailing| frames <= trailing)
+        {
+            self.queue_ended();
+        }
+    }
+
+    fn queue_ended(&mut self) {
+        self.trailing_silence = None;
+    }
+
+    fn tick(&mut self, pending_sound: bool, now: Instant) -> Option<bool> {
+        let heartbeat = self.heartbeat?;
+        if pending_sound || self.queued_sound() {
+            self.quiet_until = None;
+        } else if now >= *self.quiet_until.get_or_insert(now + TAIL_GUARD) {
+            self.heartbeat = None;
+            self.quiet_until = None;
             return Some(false);
         }
-        if now >= self.heartbeat {
-            self.heartbeat = now + HEARTBEAT;
+        if now >= heartbeat {
+            self.heartbeat = Some(now + HEARTBEAT);
             return Some(true);
         }
         None
@@ -97,12 +113,9 @@ mod linux;
 
 #[cfg(target_os = "linux")]
 fn main() {
-    match linux::run() {
-        Ok(status) => std::process::exit(status),
-        Err(error) => {
-            eprintln!("aplay adapter: {error}");
-            std::process::exit(1);
-        }
+    if let Err(error) = linux::run() {
+        eprintln!("aplay adapter: {error}");
+        std::process::exit(1);
     }
 }
 
@@ -116,60 +129,72 @@ fn main() {
 mod tests {
     use super::*;
 
-    pub(super) fn args() -> Vec<String> {
-        "--quiet -t raw -f S16_LE -r 24000 -c 1 --buffer-size 1440 --period-size 360 -"
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect()
-    }
-
     #[test]
     fn supported_client_formats() {
-        let mut args = args();
+        let mut args: Vec<_> =
+            "--quiet -t raw -f S16_LE -r 24000 -c 1 --buffer-size 1440 --period-size 360 -"
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
+        let format = Format::from_args(&args).unwrap();
         assert_eq!(
-            Format::from_args(&args).unwrap().buffer,
-            Duration::from_millis(60)
+            (format.rate, format.buffer, format.period),
+            (24000, 1440, 360)
         );
         args[6] = "16000".into();
         args[10] = "480".into();
         args[12] = "160".into();
-        assert_eq!(
-            Format::from_args(&args).unwrap().period,
-            Duration::from_millis(10)
-        );
+        assert_eq!(Format::from_args(&args).unwrap().period, 160);
         args[13] = "some.wav".into();
         assert!(Format::from_args(&args).is_none());
     }
 
     #[test]
-    fn idle_and_silent_pipe_then_two_utterances_and_heartbeat() {
+    fn delayed_playback_holds_on_until_measured_completion() {
         let now = Instant::now();
-        let mut a = Activity::new(Format::from_args(&args()).unwrap(), 4096, now);
         let at = |ms| now + Duration::from_millis(ms);
-        assert_eq!(a.deadline(), None);
-        assert_eq!(a.pcm(&[0; 960], now), None);
-        assert_eq!(a.pcm(&[1; 960], at(20)), Some(true));
-        for ms in (40..=520).step_by(20) {
-            assert_eq!(a.pcm(&[1; 960], at(ms)), None);
-        }
-        assert_eq!(a.tick(at(520)), Some(true));
-        for ms in (540..660).step_by(20) {
-            assert_eq!(a.pcm(&[0; 960], at(ms)), None);
-            assert_eq!(a.tick(at(ms)), None);
-        }
-        assert_eq!(a.tick(at(660)), Some(false));
-        assert_eq!(a.pcm(&[1, 0], at(1000)), Some(true));
-        assert_eq!(a.tick(at(1200)), Some(false));
+        let mut activity = Activity::default();
+        assert!(activity.before_write(true, now));
+        assert_eq!(activity.tick(true, at(140)), None); // Write still pending.
+        activity.accepted(&[1; 960]);
+        assert_eq!(activity.tick(false, at(200)), None); // Delay unavailable.
+        activity.observe_delay(480);
+        assert_eq!(activity.tick(false, at(500)), Some(true));
+        activity.observe_delay(0);
+        assert_eq!(activity.tick(false, at(550)), None);
+        assert_eq!(activity.tick(false, at(609)), None);
+        assert_eq!(activity.tick(false, at(610)), Some(false));
     }
 
     #[test]
-    fn tail_accounts_for_queued_audio_but_is_bounded() {
+    fn queued_silence_does_not_keep_playback_active() {
         let now = Instant::now();
-        let mut a = Activity::new(Format::from_args(&args()).unwrap(), 4096, now);
-        for _ in 0..1000 {
-            a.pcm(&[1; 2048], now);
-        }
-        assert_eq!(a.tick(now + Duration::from_millis(180)), None);
-        assert_eq!(a.tick(now + Duration::from_millis(300)), Some(false));
+        let mut activity = Activity::default();
+        assert!(!has_sound(&[0, 0, 1]));
+        assert!(has_sound(&[0, 1]));
+        assert!(!activity.before_write(false, now));
+        assert!(activity.before_write(true, now));
+        activity.accepted(&[0, 1, 0, 0]);
+        activity.accepted(&[0; 960]);
+        activity.observe_delay(482);
+        assert!(activity.queued_sound());
+        activity.observe_delay(481);
+        assert!(!activity.queued_sound());
+        assert_eq!(activity.tick(false, now), None);
+        assert_eq!(activity.tick(false, now + TAIL_GUARD), Some(false));
+        assert!(activity.before_write(true, now + TAIL_GUARD));
+    }
+
+    #[test]
+    fn xrun_drops_old_queue_without_dropping_unwritten_samples() {
+        let now = Instant::now();
+        let mut activity = Activity::default();
+        assert!(activity.before_write(true, now));
+        activity.accepted(&[1, 0]);
+        activity.queue_ended();
+        assert_eq!(activity.tick(true, now + HEARTBEAT), Some(true));
+        activity.accepted(&[2, 0]);
+        activity.observe_delay(1);
+        assert!(activity.queued_sound());
     }
 }

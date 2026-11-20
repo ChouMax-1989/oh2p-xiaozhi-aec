@@ -1,5 +1,5 @@
 {
-  "snapshot": "oh2p-xiaozhi-aec-20261024",
+  "snapshot": "oh2p-xiaozhi-aec-20261120",
   "owner_source_base": "https://github.com/ChouMax-1989/oh2p-family-voice-firmware-source/tree/2ab6b4e2c3226389877fc3d0f50ebb0756ea3fda",
   "owner_includes_later_stream_health": true,
   "owner_features": [],
@@ -70,15 +70,23 @@
       "sha256": "0340a282b690934a434567a28989e5d2bbb60e53dd7ce7ca59b3b43d3da81ece"
     },
     "aec/reader/src/bin/aplay.rs": {
-      "bytes": 5606,
-      "sha256": "b330e03a9ef4d4cef0bd9d20fe917ab24a2940b9eba5dca447c75eb24075de47"
+      "bytes": 6294,
+      "sha256": "4c8567560f9ca3ff535153f8de4f05fd04324178d3fc360721ec6a265496e1a1"
     },
     "aec/reader/src/playback_linux.rs": {
-      "bytes": 12828,
-      "sha256": "c84bce81d7d31caab562f4ae0797609ecf705167d789ef1764fbd302c629075f"
+      "bytes": 17747,
+      "sha256": "ba4479454ef76ef375808c10b882dbe6abb24d38deb05f0fe937691d4f505e9a"
+    },
+    "aec/reader/src/playback_alsa.rs": {
+      "bytes": 10325,
+      "sha256": "8f94293dd70299d37896813b08f27eb5e149d2f7c6447cf5d4be2aa1f9d73d8a"
     }
   },
   "prebuilt": {
+    "aplay": {
+      "bytes": 351536,
+      "sha256": "8a46b48ee0ac117a31c01e5b77735a1b61d822c9f143eea22e31417fb709ad5d"
+    },
     "arecord": {
       "bytes": 330848,
       "sha256": "59ef949f3006315e25e84d54e9fd405555b31909bdbeea14b188a1d530b86ceb"
@@ -88,9 +96,9 @@
       "sha256": "7c19a777bf4bbadb305dd44beb29b344708a35a70923f803ba896542ba5fea20"
     },
     "vpm-owner": {
-      "bytes": 455948,
-      "sha256": "6bd85e6bdb7c9ad61b30a7f667c9037be2eb68a80a69417cea1ff28142bbc042"
+      "bytes": 475004,
+      "sha256": "8c6abc321e9aedf074eb2d060b848ea988ebbd6002647bb1786573ba85beb962"
     }
   },
-  "playback_notifications": "Source build only. The archived speaker binaries listed under prebuilt predate playback notifications."
+  "playback_notifications": "The packaged aplay reports actual ALSA playback progress to the packaged vpm-owner, which notifies the firmware VPM. The upgrade preserves the client and recording binaries from the previous release."
 }

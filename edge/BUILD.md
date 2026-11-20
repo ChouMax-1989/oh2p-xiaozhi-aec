@@ -1,6 +1,6 @@
 # Edge 构建与产物
 
-`prebuilt/` 保留公开安装包使用的 ARMv7 hard-float 三件套，以 `SHA256SUMS` 固定。播放状态通知由本页的源码构建提供。owner/reader 对应源码均完整保留。上游发行 client 的源码修订与发行文件不存在可证明的一一对应关系，不宣称二进制可复现。
+`prebuilt/` 放的是安装包里的四个 ARMv7 hard-float 程序：`client`、`vpm-owner`、`arecord` 和 `aplay`，下载后的文件用 `SHA256SUMS` 核对。公开包已包含播放状态通知和本次播放结束修正，普通安装不用自行编译。owner、收音和播放程序的源码均在本目录。上游发行 client 的源码修订与发行文件不存在可证明的一一对应关系，不宣称二进制可复现。
 
 Linux、Docker 或 NAS Docker 主机，在仓库根目录执行：
 
@@ -22,7 +22,7 @@ sh edge/build.sh --client
 
 本地验证新版时，从同一次构建的 `build/out/` 取出 `vpm-owner`、`arecord`、`aplay`，一起放到安装包副本的 `prebuilt/`。保留其中的 `client`，在该目录运行 `sha256sum arecord aplay vpm-owner client > SHA256SUMS`，再使用本版安装脚本。
 
-这个 `aplay` 只供小智客户端调用。它把语音交给系统播放器，同时通知原厂回声消除模块何时开始和结束播报。音箱里的其他播放器仍用原来的程序。
+这个 `aplay` 只供小智客户端调用。对于小智的裸 PCM，它用固件自带的 `libasound.so.2` 打开 ALSA `default`，按固件原有路由播放，并根据该会话的实际播放进度通知原厂回声消除模块。其他参数、以及开始读 PCM 前遇到的 ALSA 初始化失败，直接交给系统 `aplay`。音箱里的其他播放器仍用原来的程序。
 
 使用自行构建的client候选需要自行验证其契约，并相应更新boot中的client hash。公开仓库不会替用户修改在运行的设备。
 

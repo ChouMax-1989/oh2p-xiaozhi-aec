@@ -4,7 +4,10 @@ import re
 import subprocess
 
 root = Path(__file__).resolve().parents[1]
-files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode().split('\0')
+files = subprocess.check_output(
+    ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    cwd=root,
+).decode().split('\0')
 rules = {
     'private-address': rb'(?<![0-9])192\.168\.\d{1,3}\.\d{1,3}(?![0-9])',
     'personal-path': rb'(?:[CD]:[/\\](?:Users[/\\]admin|AI[/\\]))',
@@ -22,4 +25,4 @@ for name in filter(None, files):
             failures.append(f'{name}: {label}')
 if failures:
     raise SystemExit('\n'.join(failures))
-print(f'Checked {len(list(filter(None, files)))} tracked files: no configured privacy pattern matched.')
+print(f'Checked {len(list(filter(None, files)))} public candidate files: no configured privacy pattern matched.')

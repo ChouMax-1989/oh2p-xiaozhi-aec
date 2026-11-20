@@ -129,6 +129,7 @@ class PendingWakeupTests(unittest.IsolatedAsyncioTestCase):
         await self.until(lambda: self.state.active)
         await self.fixture.settle()
         await self.state.stop()
+        await self.fixture.settle()
         self.assertFalse(self.state.active)
         self.assertEqual(len(self.fixture.cues), 2)
 

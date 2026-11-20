@@ -17,6 +17,10 @@ jobs:
         run: python tools/check_public.py
       - name: Python syntax
         run: python -m compileall -q server
+      - name: Install packages and upgrade preservation
+        run: |
+          python -m unittest discover -s tools -p test_package_release.py -v
+          sh edge/tests/test-install.sh
       - name: Firmware copy sanitization tests
         run: python -m unittest discover -s firmware -p test_sanitize_live.py -v
       - name: Realtime state tests

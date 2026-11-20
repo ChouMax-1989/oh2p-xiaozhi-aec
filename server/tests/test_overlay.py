@@ -103,6 +103,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.tts('stop'); await self.settle()
         self.assertEqual(len(self.cues), 1)
         await self.state.stop(); await self.state.stop()
+        await self.settle()
         self.assertEqual(len(self.cues), 2)
         self.assertIn('voip_off.opus', self.cues[1])
         await self.state.wake()
@@ -119,6 +120,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.fail_cue = False
         self.now = 20
         await self.state.tick()
+        await self.settle()
         self.assertFalse(self.state.active)
         self.assertEqual(len(self.cues), 2)
         await self.state.tick()
@@ -146,9 +148,41 @@ class Integration(unittest.IsolatedAsyncioTestCase):
             await self.settle()
             self.assertIn([b"encoded"], self.sent)
             await asyncio.wait_for(self.state.stop(), 0.5)
+            await self.settle()
             self.assertTrue(cancelled.is_set())
             self.assertEqual(len(self.cues), 1)
             self.assertIn("voip_off", self.cues[0])
+
+    async def test_slow_end_cue_does_not_block_next_wake(self):
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+        original = sys.modules["open_xiaoai_server"].run_shell
+
+        async def slow_end(command, timeout):
+            if "voip_off" in command:
+                entered.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    cancelled.set()
+            return await original(command, timeout)
+
+        with patch.object(sys.modules["open_xiaoai_server"], "run_shell", slow_end):
+            await self.state.wake()
+            await self.settle()
+            stop = asyncio.create_task(self.state.stop())
+            try:
+                await asyncio.wait_for(entered.wait(), 0.5)
+                await asyncio.wait_for(asyncio.shield(stop), 0.2)
+                EventManager.on_wakeup()
+                await asyncio.wait_for(cancelled.wait(), 0.5)
+                await self.settle()
+                self.assertTrue(self.app.audio_codec.input_stream.is_active())
+                self.app._handle_input_audio()
+                await self.settle()
+                self.assertIn([b"encoded"], self.sent)
+            finally:
+                stop.cancel()
+                await asyncio.gather(stop, return_exceptions=True)
 
     async def test_stale_input_callbacks_cannot_fill_next_wakes_queue(self):
         await self.state.wake()
@@ -345,6 +379,98 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertIn([b"encoded"],self.sent)
         self.tts("start"); await self.settle()
         self.assertFalse(self.state.response_aborted)
+
+    async def test_normal_followup_after_playback_tail_does_not_abort(self):
+        await self.state.wake()
+        self.tts("start")
+        self.app._on_incoming_audio(bytes(2880))  # 60ms of synthetic S16 mono.
+        self.tts("stop")
+        await self.settle()
+        before = list(self.sent)
+        self.now = 10
+        for _ in range(8):
+            VAD._handle_speech_frame(bytes(1024))
+        await self.settle()
+        self.assertEqual(self.sent, before)
+        self.assertFalse(self.state.response_aborted)
+        self.assertTrue(self.state.active)
+
+    async def test_barge_in_queue_tail_stops_device_without_cloud_abort(self):
+        await self.state.wake()
+        self.tts("start")
+        for _ in range(3):
+            self.app._on_incoming_audio(bytes(2880))
+        self.tts("stop")
+        await self.settle()
+        self.assertEqual(len(self.rendered), 3)
+        before = list(self.sent)
+        self.now = 0.26  # Beyond a single frame plus margin, within accumulated tail.
+        for _ in range(8):
+            VAD._handle_speech_frame(bytes(1024))
+        await self.settle(); await self.settle()
+        self.assertEqual(self.rendered, [])
+        self.assertEqual(self.sent, before)
+        self.assertTrue(self.state.active)
+
+    async def test_barge_keeps_next_response_already_in_queue(self):
+        entered = asyncio.Event()
+        original = sys.modules["open_xiaoai_server"].on_output_data
+
+        async def stalled_old(data):
+            if data == b"blocked-old":
+                entered.set()
+                await asyncio.Future()
+            await original(data)
+
+        with patch.object(sys.modules["open_xiaoai_server"], "on_output_data", stalled_old):
+            await self.state.wake()
+            self.tts("start")
+            self.app._on_incoming_audio(b"blocked-old")
+            await asyncio.wait_for(entered.wait(), 0.5)
+            before = list(self.sent)
+            self.app._on_incoming_audio(b"queued-old")
+            self.tts("stop")
+            self.tts("start")
+            self.app._on_incoming_audio(b"new")
+            self.tts("stop")
+            for _ in range(8):
+                VAD._handle_speech_frame(bytes(1024))
+            await self.settle(); await self.settle()
+            self.assertEqual(self.rendered, [b"new"])
+            self.assertEqual(self.sent, before)
+            self.assertTrue(self.state.active)
+
+    async def test_barge_cannot_cancel_next_response_during_device_start(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = sys.modules["open_xiaoai_server"].playback_control
+        starts = 0
+
+        async def delayed_start(action):
+            nonlocal starts
+            if action == "start":
+                starts += 1
+                if starts == 2:
+                    entered.set()
+                    await release.wait()
+            await original(action)
+
+        with patch.object(sys.modules["open_xiaoai_server"], "playback_control", delayed_start):
+            await self.state.wake()
+            self.tts("start")
+            self.app._on_incoming_audio(bytes(2880))
+            self.tts("stop")
+            self.tts("start")
+            self.app._on_incoming_audio(b"new")
+            await asyncio.wait_for(entered.wait(), 0.5)
+            before = list(self.sent)
+            for _ in range(8):
+                VAD._handle_speech_frame(bytes(1024))
+            await self.settle()
+            release.set()
+            await self.settle()
+            self.assertEqual(self.rendered, [b"new"])
+            self.assertEqual(self.sent, before)
+            self.assertTrue(self.state.active)
 
     async def test_barge_cancel_failure_fails_closed(self):
         await self.state.wake(); self.tts("start"); await self.settle()

@@ -1,14 +1,15 @@
 #!/bin/sh
 set -eu
 WORK=/data/open-xiaoai
-[ -f "$WORK/enabled" ] || exit 0
-cd "$WORK/aec"
-sha256sum -c SHA256SUMS >/dev/null || exit 1
-[ "$(sha256sum "$WORK/client" | cut -d ' ' -f 1)" = 7c19a777bf4bbadb305dd44beb29b344708a35a70923f803ba896542ba5fea20 ] || exit 1
 mkdir -p /tmp/open-xiaoai
 chmod 700 /tmp/open-xiaoai
 exec 9>/tmp/open-xiaoai/aec-supervisor.lock
 flock -n 9 || exit 0
+[ -f "$WORK/enabled" ] || exit 0
+cd "$WORK/aec"
+[ -x bin/aplay ] && grep -Eq '^[a-f0-9]{64}  bin/aplay$' SHA256SUMS || exit 1
+sha256sum -c SHA256SUMS >/dev/null || exit 1
+[ "$(sha256sum "$WORK/client" | cut -d ' ' -f 1)" = 7c19a777bf4bbadb305dd44beb29b344708a35a70923f803ba896542ba5fea20 ] || exit 1
 # Refuse to start a second custom consumer. A routing change takes effect after
 # the firmware capture has reopened (normally on the next speaker boot).
 [ -r /proc/asound/card0/pcm3c/sub0/status ] && grep -q '^closed' /proc/asound/card0/pcm3c/sub0/status || exit 1
@@ -28,6 +29,7 @@ cleanup() {
     [ -z "$owner_pid" ] || kill "$owner_pid" 2>/dev/null || true
     [ -z "$client_pid" ] || wait "$client_pid" 2>/dev/null || true
     [ -z "$owner_pid" ] || wait "$owner_pid" 2>/dev/null || true
+    rm -f /tmp/open-xiaoai/aec-pids
 }
 trap 'cleanup' EXIT
 trap 'exit 0' INT TERM HUP

@@ -1,14 +1,17 @@
 """Small, opt-in session adapter; no credentials, DSP, device or network startup.
 
 All calls run on XiaoZhi.loop. Playback methods MUST implement acknowledged
-device-side queue cancellation, and preserve FIFO ordering with audio writes.
-See INTEGRATION.md before wiring into the pinned open-xiaoai application.
+device-side queue cancellation and preserve FIFO ordering with audio writes.
+Playback.write returns the duration in seconds of audio sent to the device.
 """
 import asyncio
 import time
 
 
 class RealtimeSession:
+    # Allow transport and audio buffering after the estimated PCM drain time.
+    PLAYBACK_TAIL_MARGIN = 0.15
+
     def __init__(self, protocol, playback, *, enabled=False, aec_ready=False,
                  cancel_ready=False, timeout=20, clock=time.monotonic):
         self.protocol = protocol
@@ -22,8 +25,8 @@ class RealtimeSession:
         self.last_activity = 0
         self.lock = asyncio.Lock()
         self.response_epoch = 0
-        self.response_available = False
         self.response_aborted = False
+        self.playback_tail_until = None
 
     def _current(self):
         return self.active and self.session_id == self.protocol.session_id
@@ -34,8 +37,8 @@ class RealtimeSession:
         async with self.lock:
             self.active = False
             self.speaking = False
-            self.response_available = False
             self.response_aborted = False
+            self.playback_tail_until = None
             started = time.monotonic()
             await self.playback.cancel()  # stop queued and physical playback
             print(f"OH2P wake playback_stop_ms={(time.monotonic()-started)*1000:.1f}", flush=True)
@@ -68,7 +71,7 @@ class RealtimeSession:
         if self._current():
             self.last_activity = self.clock()
 
-    async def incoming_json(self, data):
+    async def incoming_json(self, data, epoch=None):
         async with self.lock:
             if not self._current() or data.get("session_id") != self.session_id:
                 return False
@@ -80,11 +83,11 @@ class RealtimeSession:
             if state == "start":
                 # Repeated starts also discard the previous response locally.
                 self.speaking = False
+                self.playback_tail_until = None
                 await self.playback.cancel()
                 await self.playback.start()
                 self.speaking = True
-                self.response_epoch += 1
-                self.response_available = True
+                self.response_epoch = self.response_epoch + 1 if epoch is None else epoch
                 self.response_aborted = False
                 self.last_activity = self.clock()
             elif state == "stop":
@@ -99,31 +102,47 @@ class RealtimeSession:
         async with self.lock:
             if not self._current() or not self.speaking:
                 return False
-            await self.playback.write(data)
+            duration = await self.playback.write(data)
+            if duration > 0:
+                # A successful write means sent, not played. Accumulate PCM
+                # duration across bursts and include a margin in playback_pending.
+                now = self.clock()
+                self.playback_tail_until = max(now, self.playback_tail_until or now) + duration
             return True
+
+    def playback_pending(self):
+        return self.speaking or (
+            self.playback_tail_until is not None
+            and self.clock() < self.playback_tail_until + self.PLAYBACK_TAIL_MARGIN
+        )
+
+    def can_barge(self, epoch):
+        return (self._current() and epoch == self.response_epoch
+                and not self.response_aborted and self.playback_pending())
 
     async def interrupt(self, *, channel_open=True):
         async with self.lock:
             self.active = False  # fail closed before any awaited RPC
             self.speaking = False
-            self.response_available = False
+            self.playback_tail_until = None
             await self.playback.cancel()
             if channel_open and self.protocol.is_audio_channel_opened():
                 await self.protocol.send_abort_speaking("abort")
                 await self.protocol.send_stop_listening()
             self.session_id = None
 
-    async def barge_in(self, expected_epoch):
+    async def barge_in(self, expected_epoch, should_abort_cloud):
         async with self.lock:
-            if (not self._current() or self.response_aborted or
-                not self.response_available or expected_epoch != self.response_epoch):
+            if not self.can_barge(expected_epoch):
                 return False
             self.response_aborted = True
             self.speaking = False
+            self.playback_tail_until = None
             try:
                 # Stop physical playback before cloud cancellation can block.
                 await self.playback.cancel()
-                await self.protocol.send_abort_speaking("abort")
+                if self._current() and should_abort_cloud():
+                    await self.protocol.send_abort_speaking("abort")
             except Exception:
                 self.active = False
                 raise
@@ -132,7 +151,7 @@ class RealtimeSession:
 
     async def expire(self):
         # Call from a periodic task on the same loop, not the PCM callback.
-        if self._current() and not self.speaking:
+        if self._current() and not self.playback_pending():
             if self.clock() - self.last_activity >= self.timeout:
                 await self.interrupt()
                 return True

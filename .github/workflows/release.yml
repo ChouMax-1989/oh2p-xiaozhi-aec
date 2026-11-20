@@ -5,7 +5,7 @@ on:
       version:
         description: Release version (YYYY.MM.DD.N)
         required: true
-        default: '2026.10.27.1'
+        default: '2026.11.20.1'
 permissions:
   contents: read
 jobs:
@@ -26,6 +26,7 @@ jobs:
           python tools/check_public.py
           python -m unittest discover -s tools -p test_package_release.py -v
           sh edge/tests/test-alsa-routes.sh
+          sh edge/tests/test-install.sh
       - name: Build and test without cloud or speaker access
         run: |
           docker build --target test -t oh2p-release-tests ./server
@@ -49,15 +50,15 @@ jobs:
       - name: Prepare unified release draft
         run: |
           cat > /tmp/release-notes.md <<'NOTES'
-          本版包含唤醒等待、重复唤醒和空闲断线重连修复，不需要自行编译。
+          本版同时更新 NAS 和音箱程序：修正追问被误打断、打断旧回复时丢掉新回复、结束提示音拖住再次唤醒，以及声音尚未播完就提前通知回声消除模块结束的问题。
 
-          已安装旧版的人只需更新 NAS 镜像和原 docker-compose.yml 的 image 版本。保留自己的 data/config.py、.env 和自定义配置，不用重装音箱或刷固件。升级步骤见仓库 docs/DEPLOYMENT.md。
+          已安装旧版的人需要更新 NAS 镜像和音箱程序，保留自己的配对及声音配置。音箱系统仍为 1.62.2，不用重新刷机。下载、安装和升级都按[仓库首页](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec#readme)操作。
 
           1. NAS 下载 `oh2p-xiaozhi-nas-amd64.tar.gz` 和 `oh2p-xiaozhi-easy-install.zip`，按首页说明导入 Docker 并启动。
           2. 已有 SSH 的 OH2P 1.62.2 下载 `oh2p-xiaozhi-speaker.tar.gz`。这是音箱程序安装包，不是可刷入分区的整机固件。
           3. 默认唤醒词“你好小智”，每个人自行绑定自己的小智账号，包内无个人配对资料。
 
-          镜像在干净环境构建，通过离线测试，并验证了导出后的 Docker 文件可以重新导入。支持 x86-64 / amd64 NAS；ARM NAS 请勿使用这个镜像包。整机固件准备与下载见 docs/LIVE-FIRMWARE.md。默认唤醒词仍为“你好小智”；本版没有修改声纹识别或采样率。
+          Docker 镜像从公开源码干净构建，通过离线测试和重新导入检查；音箱程序经过 ARM 构建、原固件音频库检查及设备无声检查。真人首句等待、自回声和插话效果仍待日常使用确认，不保证本次已解决所有现场问题。支持 Intel/AMD 64 位 NAS；ARM NAS 不适用。默认唤醒词“你好小智”，未修改声纹识别或采样率。整机固件沿用原来的脱敏包，未重新刷机验收，只有尚未准备好系统的人才需要下载。
           NOTES
           gh release create "v$RELEASE_VERSION" --draft --target "$GITHUB_SHA" --title "OH2P 小智最新版" --notes-file /tmp/release-notes.md
           gh release upload "v$RELEASE_VERSION" dist/oh2p-xiaozhi-easy-install.zip dist/oh2p-xiaozhi-speaker.tar.gz dist/oh2p-xiaozhi-nas-amd64.tar.gz dist/SHA256SUMS

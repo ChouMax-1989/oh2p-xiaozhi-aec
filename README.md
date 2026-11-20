@@ -29,11 +29,11 @@
 
 ## 近期源码更新
 
-**2026-11-18，小智首轮有时会把自己的播报听成用户说话。** 这样它可能刚开口就误判有人插话，打断自己的回答。音箱端现在会在小智开始和结束播放语音时通知原厂语音模块，让它能按播放状态处理回声。语音仍由系统播放器播放，播报期间仍可收音。
+**2026-11-20，继续修正对话被误打断和播放结束通知。** NAS 端修了三处问题：回答已经播完，追问却被当成打断；打断旧回答时误删下一条回复；结束提示音拖住再次唤醒。
 
-本次修订只需更新音箱端程序，NAS 无需为此升级。已经运行 1.62.2 且能通过 SSH 登录的音箱无需刷机。已在隔离环境确认原厂语音模块收到播放开始和结束通知，转交给系统播放器的音频数据与输入一致。真人首轮对话、自然插话和日常使用效果待验证。
+音箱端也修了一个问题：声音还没播完，程序就提前告诉回声消除模块“播完了”。现在由小智专用播放程序读取自己这路音频的播放进度，再发送结束通知，仍使用固件原有的音频输出线路，播放期间继续收音。已经运行 1.62.2 且能通过 SSH 登录的音箱，更新音箱程序即可，不需要重新刷机。
 
-修订已合入 `main` 源码。目前公开下载仍为 **v2026.10.27.1**，其中的音箱安装包不含这次修订。需要从源码构建音箱程序时，见[构建说明](edge/BUILD.md)。
+这轮修订已包含在 **v2026.11.20.1** 下载包中，NAS 镜像和音箱程序都要更新。程序测试、原固件音频库检查及设备无声检查已通过；真人首句等待、自回声和插话效果仍需日常使用确认。需要自行构建时，见[构建说明](edge/BUILD.md)。
 
 ## 下载
 
@@ -75,7 +75,7 @@ docker load -i oh2p-xiaozhi-nas-amd64.tar.gz
 等它完成。正常会看到：
 
 ```text
-Loaded image: oh2p-xiaozhi-aec:2026.10.27.1
+Loaded image: oh2p-xiaozhi-aec:2026.11.20.1
 ```
 
 看到这行后，镜像就已导入。先不要启动，继续安装音箱。后面写的“NAS 终端”命令，都在这个有 `docker-compose.yml` 的文件夹里执行。
@@ -188,12 +188,16 @@ docker compose restart server
 
 ## 升级
 
-以下步骤适用于将 NAS 升级到目前公开下载的 `2026.10.27.1`。更新 NAS 上的 Docker 镜像，并把原有 `docker-compose.yml` 中 `server` 的 `image` 版本改为 `2026.10.27.1`。保留原来的 `data/config.py`、`.env`、端口和所有自定义设置，不要解压新安装包覆盖配置，也不用重装音箱程序或刷固件。升级会重建 NAS 服务，建议等当前对话结束后再操作。
+本版 `2026.11.20.1` 要更新 **NAS 镜像和音箱程序两部分**。音箱仍用 1.62.2 系统，不需要刷机。请等当前聊天结束再升级，过程中音箱会暂时离线。
 
-**操作位置：NAS 文件管理器和 NAS 终端。** 在电脑下载 [v2026.10.27.1 的 NAS Docker 镜像](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/latest/download/oh2p-xiaozhi-nas-amd64.tar.gz)，上传到原来放 `docker-compose.yml` 的文件夹。编辑原有 compose 文件时，只改 `server` 下 `image` 行的版本，例如：
+### 先更新 NAS
+
+保留原来的 `data/config.py`、`.env`、端口和自定义设置。不要把新安装包的空白配置覆盖到旧目录，否则会丢失原来的绑定。
+
+**操作位置：NAS 文件管理器和 NAS 终端。** 下载[新版 NAS Docker 镜像](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/latest/download/oh2p-xiaozhi-nas-amd64.tar.gz)，上传到原来放 `docker-compose.yml` 的文件夹。编辑原有 compose 文件时，只改 `server` 下 `image` 这一行：
 
 ```yaml
-image: oh2p-xiaozhi-aec:2026.10.27.1
+image: oh2p-xiaozhi-aec:2026.11.20.1
 ```
 
 保留原来的 compose 文件及其他内容。进入该文件夹，在 NAS 终端执行：
@@ -205,7 +209,32 @@ docker compose ps
 docker compose images server
 ```
 
-确认 `server` 状态为 `Up` 或 `running`，并且镜像版本显示为 `2026.10.27.1`。保留升级前的旧镜像以便回退。若需回退，把原 compose 文件中 image 版本改回升级前的版本，再执行 docker compose up -d --no-deps server。
+确认 `server` 状态为 `Up` 或 `running`，镜像版本显示为 `2026.11.20.1`。
+
+### 再更新音箱程序
+
+下载[新版音箱程序包](https://github.com/ChouMax-1989/oh2p-xiaozhi-aec/releases/latest/download/oh2p-xiaozhi-speaker.tar.gz)。在电脑保存下载文件的文件夹里打开终端，上传并登录音箱，把 `SPEAKER_HOST` 换成音箱地址：
+
+```sh
+scp -O oh2p-xiaozhi-speaker.tar.gz root@SPEAKER_HOST:/data/
+ssh root@SPEAKER_HOST
+```
+
+登录后，在音箱里执行：
+
+```sh
+mkdir -p /data/oh2p-xiaozhi-update-20261120
+tar -xzf /data/oh2p-xiaozhi-speaker.tar.gz -C /data/oh2p-xiaozhi-update-20261120
+sh /data/oh2p-xiaozhi-update-20261120/edge/install.sh --upgrade
+```
+
+升级脚本会检查原安装、停止这套音箱程序，再更新文件，保留原 NAS 地址和声音配置。看到安装完成提示后，再执行：
+
+```sh
+reboot
+```
+
+等待音箱重新联网即可。原来的唤醒词和小智绑定保存在 NAS 配置中，只要没覆盖配置，就不需要重新绑定。如果升级脚本报错，先停在报错处，不要跳过检查。
 
 如果要撤销音箱安装，重新 SSH 登录音箱，执行：
 

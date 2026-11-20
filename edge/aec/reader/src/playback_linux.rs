@@ -1,26 +1,27 @@
 // SPDX-License-Identifier: MIT
-use super::{Activity, Format};
+use super::{has_sound, Activity, Format};
 use std::{
     env, fs,
-    io::{self, Read, Write},
+    io::{self, Read},
     os::{
-        fd::{AsRawFd, FromRawFd},
+        fd::{AsRawFd, FromRawFd, RawFd},
         raw::{c_int, c_ulong},
-        unix::{
-            net::UnixDatagram,
-            process::{CommandExt, ExitStatusExt},
-        },
+        unix::{net::UnixDatagram, process::CommandExt},
     },
     path::Path,
-    process::{self, Child, ChildStdin, Command, Stdio},
-    time::Instant,
+    process::{self, Command},
+    thread,
+    time::{Duration, Instant},
 };
 
+#[path = "playback_alsa.rs"]
+mod alsa;
+
 const ENDPOINT: &str = "/tmp/open-xiaoai/tts-playback.sock";
-const CHUNK: usize = 2048; // <= Linux PIPE_BUF, at most one chunk held by the proxy
+const CHECK_INTERVAL: Duration = Duration::from_millis(10);
+const STALL_LIMIT: Duration = Duration::from_secs(5);
 const POLLIN: i16 = 1;
-const POLLOUT: i16 = 4;
-const PIPE_ERROR: i16 = 8 | 16 | 32; // POLLERR | POLLHUP | POLLNVAL
+const POLLNVAL: i16 = 32;
 
 #[repr(C)]
 struct PollFd {
@@ -31,47 +32,73 @@ struct PollFd {
 
 extern "C" {
     fn poll(fds: *mut PollFd, count: c_ulong, timeout: c_int) -> c_int;
-    fn prctl(option: c_int, ...) -> c_int;
-    fn getppid() -> c_int;
-    fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
+}
+
+fn input_ready(input: RawFd, wait: Option<Duration>) -> io::Result<bool> {
+    let mut fd = PollFd {
+        fd: input,
+        events: POLLIN,
+        revents: 0,
+    };
+    let timeout = wait.map_or(-1, |duration| {
+        duration.as_nanos().div_ceil(1_000_000) as c_int
+    });
+    if unsafe { poll(&mut fd, 1, timeout) } < 0 {
+        let error = io::Error::last_os_error();
+        return if error.kind() == io::ErrorKind::Interrupted {
+            Ok(false)
+        } else {
+            Err(error)
+        };
+    }
+    if fd.revents & POLLNVAL != 0 {
+        return Err(io::Error::other("invalid player stdin"));
+    }
+    // POLLHUP also needs a read to collect any final bytes and detect EOF.
+    Ok(fd.revents != 0)
 }
 
 struct Notice<'a> {
     endpoint: &'a Path,
     identity: Option<(UnixDatagram, u64)>,
     seq: u64,
+    on: bool,
 }
 
-fn start_ticks(stat: &str) -> Option<u64> {
-    // comm (field 2) may itself contain spaces or a closing parenthesis.
-    stat.rsplit_once(')')?
-        .1
-        .split_whitespace()
-        .nth(19)?
-        .parse()
-        .ok()
+fn start_ticks(stat: &[u8]) -> Option<u64> {
+    // comm (field 2) may contain whitespace, closing parentheses or non-UTF8.
+    let tail = &stat[stat.iter().rposition(|&b| b == b')')? + 1..];
+    let ticks = tail
+        .split(u8::is_ascii_whitespace)
+        .filter(|p| !p.is_empty())
+        .nth(19)?;
+    std::str::from_utf8(ticks).ok()?.parse().ok()
 }
 
 impl<'a> Notice<'a> {
     fn new(endpoint: &'a Path) -> Self {
         let identity = (|| {
-            let pid = process::id();
-            // Identify the process leader even when the caller runs on a helper thread.
-            let stat = fs::read_to_string(format!("/proc/{pid}/task/{pid}/stat")).ok()?;
-            let ticks = start_ticks(&stat)?;
-            let sock = UnixDatagram::unbound().ok()?;
-            sock.set_nonblocking(true).ok()?;
-            Some((sock, ticks))
+            let mut stat = [0; 1024];
+            let count = fs::File::open("/proc/self/stat")
+                .ok()?
+                .read(&mut stat)
+                .ok()?;
+            let ticks = start_ticks(&stat[..count])?;
+            let socket = UnixDatagram::unbound().ok()?;
+            socket.set_nonblocking(true).ok()?;
+            Some((socket, ticks))
         })();
         Self {
             endpoint,
             identity,
             seq: 0,
+            on: false,
         }
     }
 
     fn send(&mut self, on: bool) {
-        if let Some((sock, ticks)) = &self.identity {
+        self.on = on;
+        if let Some((socket, ticks)) = &self.identity {
             self.seq += 1;
             let message = format!(
                 "TTS1 {} {} {} {}\n",
@@ -81,291 +108,426 @@ impl<'a> Notice<'a> {
                 if on { "ON" } else { "OFF" }
             );
             // Resolve the pathname each time so an owner restart recovers on heartbeat.
-            let _ = sock.send_to(message.as_bytes(), self.endpoint);
+            let _ = socket.send_to(message.as_bytes(), self.endpoint);
         }
     }
 }
 
-fn spawn_player(command: &mut Command, expected_parent: u32) -> io::Result<Child> {
-    // Only async-signal-safe system calls run between fork and exec. Register
-    // first, then catch parent death between fork and prctl (including reparenting).
-    unsafe {
-        command.pre_exec(move || {
-            if prctl(1, 9 as c_ulong, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            if getppid() as u32 != expected_parent {
-                return Err(io::Error::from_raw_os_error(3)); // ESRCH
-            }
-            Ok(())
-        });
+impl Drop for Notice<'_> {
+    fn drop(&mut self) {
+        if self.on {
+            self.send(false);
+        }
     }
-    command.stdin(Stdio::piped()).spawn()
 }
 
-fn relay(
-    input: &mut fs::File,
-    output: &mut ChildStdin,
-    activity: &mut Activity,
-    notice: &mut Notice<'_>,
+enum Progress<T> {
+    Ready(T),
+    Retry,
+    Reset,
+}
+
+enum Delay {
+    Queued(usize),
+    Prepared,
+    Unknown,
+    Reset,
+}
+
+trait Pcm {
+    fn write(&mut self, samples: &[u8]) -> io::Result<Progress<usize>>;
+    fn delay(&mut self) -> Delay;
+    fn start(&mut self) -> io::Result<Progress<()>>;
+    fn drain(&mut self) -> io::Result<Progress<()>>;
+}
+
+fn play(
+    input: &mut (impl Read + AsRawFd),
+    pcm: &mut impl Pcm,
+    format: Format,
+    mut notify: impl FnMut(bool),
 ) -> io::Result<()> {
-    let mut bytes = [0u8; CHUNK];
-    let mut used = 0;
-    let mut pending = 0;
+    let start_wait =
+        Duration::from_nanos(u64::from(format.buffer) * 1_000_000_000 / u64::from(format.rate));
+    let mut samples = vec![0; format.period as usize * 2];
+    let mut filled = 0;
+    let mut sent = 0;
+    let mut carry = None;
+    let mut wrote = false;
     let mut eof = false;
+    let mut drained = false;
+    let mut activity = Activity::default();
+    let mut last_read = Instant::now();
+    let mut next_check = last_read;
+    let mut last_delay = None;
+    let mut stalled = None;
+
     loop {
         let now = Instant::now();
-        if let Some(on) = activity.tick(now) {
-            notice.send(on);
+        // As with native aplay's final short period, pad only after EOF or an
+        // input gap. Never discard a complete frame or replay accepted bytes.
+        if filled % 2 == 1 && eof {
+            filled -= 1;
         }
-        if eof && pending == 0 {
-            return Ok(());
+        let pad = filled >= 2 && (eof || now.duration_since(last_read) >= start_wait);
+        if pad && filled < samples.len() {
+            let whole = filled & !1;
+            carry = (filled > whole).then(|| samples[whole]);
+            samples[whole..].fill(0);
+            // A half sample remains outside this period until its second byte
+            // arrives. A half sample at EOF is not a playable PCM frame.
+            filled = samples.len();
         }
-        let timeout = activity.deadline().map_or(-1, |when| {
-            when.saturating_duration_since(now)
-                .as_nanos()
-                .div_ceil(1_000_000) as c_int
-        });
-        let mut fds = [
-            PollFd {
-                fd: if pending == 0 { input.as_raw_fd() } else { -1 },
-                events: POLLIN,
-                revents: 0,
-            },
-            PollFd {
-                fd: output.as_raw_fd(),
-                events: if pending == 0 { 0 } else { POLLOUT },
-                revents: 0,
-            },
-        ];
-        if unsafe { poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
-            let err = io::Error::last_os_error();
-            if err.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-        if fds[1].revents & PIPE_ERROR != 0 {
-            return Err(io::Error::from(io::ErrorKind::BrokenPipe));
-        }
-        if fds[0].revents != 0 {
-            let count = match input.read(&mut bytes[used..]) {
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                result => result?,
-            };
-            eof = count == 0;
-            used += count;
-            // Carry half a sample across fragmented pipe reads. Preserve even
-            // a final incomplete sample verbatim, without announcing it.
-            pending = if eof { used } else { used & !1 };
-        }
-        if fds[1].revents & POLLOUT != 0 {
-            if pending >= 2 {
-                if let Some(on) = activity.pcm(&bytes[..pending], Instant::now()) {
-                    notice.send(on);
+
+        if now >= next_check {
+            next_check = now + CHECK_INTERVAL;
+            if eof && filled == 0 && !drained {
+                if wrote {
+                    drained = match pcm.drain()? {
+                        Progress::Ready(()) | Progress::Reset => true,
+                        Progress::Retry => false,
+                    };
+                } else {
+                    drained = true;
+                }
+                if drained {
+                    activity.queue_ended();
+                }
+            } else if activity.queued_sound() {
+                match pcm.delay() {
+                    Delay::Queued(frames) => {
+                        if last_delay.is_none_or(|previous| frames < previous) {
+                            if last_delay.is_some() {
+                                stalled = None;
+                            }
+                            last_delay = Some(frames);
+                        }
+                        activity.observe_delay(frames);
+                    }
+                    Delay::Reset => {
+                        activity.queue_ended();
+                        last_delay = None;
+                    }
+                    Delay::Prepared if now.duration_since(last_read) >= start_wait => {
+                        if let Progress::Reset = pcm.start()? {
+                            activity.queue_ended();
+                        }
+                    }
+                    Delay::Prepared | Delay::Unknown => {}
                 }
             }
-            output.write_all(&bytes[..pending])?;
-            bytes.copy_within(pending..used, 0);
-            used -= pending;
-            pending = 0;
+            if let Some(on) = activity.tick(has_sound(&samples[sent..filled]), now) {
+                notify(on);
+            }
+        }
+        if drained && !activity.active() {
+            return Ok(());
+        }
+
+        if filled == samples.len() || activity.queued_sound() || (eof && !drained) {
+            if now.duration_since(*stalled.get_or_insert(now)) >= STALL_LIMIT {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "ALSA playback made no progress",
+                ));
+            }
+        } else {
+            stalled = None;
+        }
+
+        if filled == samples.len() {
+            if activity.before_write(has_sound(&samples[sent..filled]), now) {
+                notify(true);
+            }
+            match pcm.write(&samples[sent..filled])? {
+                Progress::Ready(frames) if frames > 0 && frames <= (filled - sent) / 2 => {
+                    let end = sent + frames * 2;
+                    activity.accepted(&samples[sent..end]);
+                    wrote = true;
+                    last_delay = None;
+                    stalled = None;
+                    if end == filled {
+                        filled = 0;
+                        sent = 0;
+                        if let Some(byte) = carry.take() {
+                            samples[0] = byte;
+                            filled = 1;
+                        }
+                    } else {
+                        sent = end;
+                    }
+                    continue;
+                }
+                Progress::Ready(_) => return Err(io::Error::other("invalid ALSA write count")),
+                Progress::Reset => {
+                    activity.queue_ended();
+                    last_delay = None;
+                    // ALSA cleared its frame pointer. Keep the unaccepted
+                    // suffix and align it to a period in the new queue.
+                    samples.copy_within(sent..filled, 0);
+                    samples[filled - sent..].fill(0);
+                    sent = 0;
+                }
+                Progress::Retry => {}
+            }
+            thread::sleep(CHECK_INTERVAL);
+        } else if eof {
+            thread::sleep(CHECK_INTERVAL);
+        } else {
+            let wait = (activity.active() || filled >= 2)
+                .then(|| next_check.saturating_duration_since(now));
+            if input_ready(input.as_raw_fd(), wait)? {
+                match input.read(&mut samples[filled..]) {
+                    Ok(0) => eof = true,
+                    Ok(count) => {
+                        filled += count;
+                        last_read = Instant::now();
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(error) => return Err(error),
+                }
+            }
         }
     }
 }
 
-fn play(program: &Path, endpoint: &Path, args: &[String], format: Format) -> io::Result<i32> {
-    let mut cmd = Command::new(program);
-    cmd.args(args);
-    let mut child = spawn_player(&mut cmd, process::id())?;
-    let mut output = child.stdin.take().expect("piped player stdin");
-    // Minimise additional buffering/backpressure changes in front of ALSA.
-    // F_GETPIPE_SZ reports actual capacity when shrinking is unavailable.
-    let pipe_bytes = unsafe {
-        fcntl(output.as_raw_fd(), 1031, 4096 as c_int); // F_SETPIPE_SZ
-        fcntl(output.as_raw_fd(), 1032) // F_GETPIPE_SZ
-    };
-    let pipe_bytes = if pipe_bytes > 0 {
-        pipe_bytes as usize
-    } else {
-        65536
-    };
-    let mut activity = Activity::new(format, pipe_bytes, Instant::now());
-    let mut notice = Notice::new(endpoint);
-    // Use the fd directly: a buffered Stdin can retain bytes invisible to poll.
-    let mut input = unsafe { fs::File::from_raw_fd(0) };
-    let result = relay(&mut input, &mut output, &mut activity, &mut notice);
-    drop(output);
-    if result.is_err() {
-        let _ = child.kill();
+fn with_pcm<T: Pcm>(
+    open: impl FnOnce() -> io::Result<(T, Format)>,
+    direct: impl FnOnce(T, Format) -> io::Result<()>,
+    fallback: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    match open() {
+        Ok((pcm, format)) => direct(pcm, format),
+        Err(error) => {
+            eprintln!("aplay adapter: ALSA initialization failed, using system aplay: {error}");
+            fallback()
+        }
     }
-    let status = child.wait();
-    if activity.audible_until.is_some() {
-        notice.send(false);
-    }
-    result?;
-    let status = status?;
-    Ok(status
-        .code()
-        .unwrap_or_else(|| 128 + status.signal().unwrap_or(1)))
 }
 
-pub fn run() -> io::Result<i32> {
-    let program = ["/usr/bin/aplay", "/bin/aplay"]
-        .iter()
-        .map(Path::new)
-        .find(|p| p.is_file())
-        .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-    let args: Vec<_> = env::args_os().skip(1).collect();
-    let strings: Option<Vec<_>> = args.iter().map(|a| a.to_str().map(str::to_owned)).collect();
-    if let Some((args, format)) = strings
-        .as_ref()
-        .and_then(|s| Format::from_args(s).map(|f| (s, f)))
-    {
-        play(program, Path::new(ENDPOINT), args, format)
+fn exec_system(args: &[std::ffi::OsString]) -> io::Result<()> {
+    let error = Command::new("/usr/bin/aplay").args(args).exec();
+    if error.kind() == io::ErrorKind::NotFound {
+        Err(Command::new("/bin/aplay").args(args).exec())
     } else {
-        // File playback and other CLI callers retain the system player's semantics.
-        Err(Command::new(program).args(args).exec())
+        Err(error)
     }
+}
+
+pub fn run() -> io::Result<()> {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let strings: Option<Vec<_>> = args
+        .iter()
+        .map(|arg| arg.to_str().map(str::to_owned))
+        .collect();
+    let Some(format) = strings.as_ref().and_then(|args| Format::from_args(args)) else {
+        return exec_system(&args);
+    };
+
+    with_pcm(
+        || alsa::Alsa::open(format),
+        |mut pcm, format| {
+            let mut notice = Notice::new(Path::new(ENDPOINT));
+            let mut input = unsafe { fs::File::from_raw_fd(0) };
+            let result = play(&mut input, &mut pcm, format, |on| notice.send(on));
+            // If playback failed, close the PCM before reporting OFF.
+            drop(pcm);
+            result
+        },
+        || exec_system(&args),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::{
-        os::{fd::OwnedFd, unix::net::UnixStream},
-        thread,
-        time::Duration,
+        cell::RefCell,
+        collections::VecDeque,
+        io::Write,
+        os::unix::net::UnixStream,
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst},
+            mpsc, Arc,
+        },
     };
 
+    const FIXTURE: Format = Format {
+        rate: 1000,
+        buffer: 60,
+        period: 4,
+    };
+    const WAIT: Duration = Duration::from_secs(2);
+    const PREPARED: usize = usize::MAX - 1;
+
+    struct FakePcm {
+        accepted: mpsc::Sender<Vec<u8>>,
+        remaining: Arc<AtomicUsize>,
+        drained: Arc<AtomicBool>,
+        writes: VecDeque<Progress<usize>>,
+    }
+
+    impl Pcm for FakePcm {
+        fn write(&mut self, samples: &[u8]) -> io::Result<Progress<usize>> {
+            let progress = self
+                .writes
+                .pop_front()
+                .unwrap_or(Progress::Ready(samples.len() / 2));
+            if let Progress::Ready(frames) = progress {
+                self.accepted.send(samples[..frames * 2].to_vec()).unwrap();
+            }
+            Ok(progress)
+        }
+
+        fn delay(&mut self) -> Delay {
+            match self.remaining.load(SeqCst) {
+                usize::MAX => Delay::Unknown,
+                PREPARED => Delay::Prepared,
+                frames => Delay::Queued(frames),
+            }
+        }
+
+        fn start(&mut self) -> io::Result<Progress<()>> {
+            self.remaining.store(FIXTURE.period as usize, SeqCst);
+            Ok(Progress::Ready(()))
+        }
+
+        fn drain(&mut self) -> io::Result<Progress<()>> {
+            Ok(if self.drained.load(SeqCst) {
+                Progress::Ready(())
+            } else {
+                Progress::Retry
+            })
+        }
+    }
+
     #[test]
-    fn fragmented_input_idle_tail_and_missing_owner_preserve_bytes() {
-        let path = env::temp_dir().join(format!("aplay-relay-{}.sock", process::id()));
-        let owner = UnixDatagram::bind(&path).unwrap();
-        let (mut writer, input) = UnixStream::pair().unwrap();
-        let mut player = spawn_player(
-            Command::new("/bin/cat").stdout(Stdio::piped()),
-            process::id(),
-        )
-        .unwrap();
-        let mut output = player.stdin.take().unwrap();
-        let destination = path.clone();
-        let worker = thread::spawn(move || {
-            let mut input = fs::File::from(OwnedFd::from(input));
-            let format = Format::from_args(&crate::tests::args()).unwrap();
-            let mut activity = Activity::new(format, 4096, Instant::now());
-            relay(
-                &mut input,
-                &mut output,
-                &mut activity,
-                &mut Notice::new(&destination),
-            )
+    fn slow_playback_and_eof_wait_for_device_progress() {
+        let (mut writer, mut input) = UnixStream::pair().unwrap();
+        let remaining = Arc::new(AtomicUsize::new(usize::MAX));
+        let drained = Arc::new(AtomicBool::new(false));
+        let (accepted, bytes) = mpsc::channel();
+        let (notifier, edges) = mpsc::channel();
+        let mut pcm = FakePcm {
+            accepted,
+            remaining: remaining.clone(),
+            drained: drained.clone(),
+            writes: VecDeque::from([Progress::Retry, Progress::Ready(2), Progress::Reset]),
+        };
+        let player = thread::spawn(move || {
+            play(&mut input, &mut pcm, FIXTURE, |on| {
+                notifier.send(on).unwrap()
+            })
             .unwrap();
         });
-        let mut packet = [0; 96];
-        owner
-            .set_read_timeout(Some(Duration::from_millis(40)))
-            .unwrap();
-        writer.write_all(&[0, 0, 8]).unwrap();
-        assert!(matches!(
-            owner.recv(&mut packet).unwrap_err().kind(),
-            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
-        ));
-        owner
-            .set_read_timeout(Some(Duration::from_secs(2)))
-            .unwrap();
-        writer.write_all(&[9]).unwrap();
-        let prefix = format!(
-            "TTS1 {} {} ",
-            process::id(),
-            start_ticks(&fs::read_to_string("/proc/self/stat").unwrap()).unwrap()
+        writer.write_all(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+        assert_eq!(edges.recv_timeout(WAIT), Ok(true));
+        assert_eq!(bytes.recv_timeout(WAIT).unwrap(), [1, 2, 3, 4]);
+        assert_eq!(bytes.recv_timeout(WAIT).unwrap(), [5, 6, 7, 8, 0, 0, 0, 0]);
+        assert_eq!(
+            edges.recv_timeout(Duration::from_millis(190)),
+            Err(mpsc::RecvTimeoutError::Timeout)
         );
-        for state in ["1 ON\n", "2 OFF\n"] {
-            let size = owner.recv(&mut packet).unwrap();
-            assert_eq!(&packet[..size], format!("{prefix}{state}").as_bytes());
-        }
-        fs::remove_file(path).unwrap();
-        drop(owner);
-        writer.write_all(&[10, 11, 12]).unwrap();
+        remaining.store(4, SeqCst);
+        assert_eq!(
+            edges.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+        remaining.store(0, SeqCst);
+        assert_eq!(edges.recv_timeout(WAIT), Ok(false));
+
+        remaining.store(4, SeqCst);
+        writer.write_all(&[0, 9, 10, 11]).unwrap();
         drop(writer);
-        worker.join().unwrap();
-        let result = player.wait_with_output().unwrap();
-        assert!(result.status.success());
-        assert_eq!(result.stdout, [0, 0, 8, 9, 10, 11, 12]);
-    }
-
-    #[test]
-    #[ignore = "standalone integration fixture with fake player and isolated socket"]
-    fn run_fixture() {
-        let args = crate::tests::args();
-        let format = Format::from_args(&args).unwrap();
-        let program = env::var_os("TEST_APLAY_PROGRAM").unwrap();
-        let endpoint = env::var_os("TEST_TTS_SOCKET").unwrap();
+        assert_eq!(edges.recv_timeout(WAIT), Ok(true));
         assert_eq!(
-            play(Path::new(&program), Path::new(&endpoint), &args, format).unwrap(),
-            0
+            bytes.recv_timeout(WAIT).unwrap(),
+            [0, 9, 10, 11, 0, 0, 0, 0]
         );
-    }
-
-    #[test]
-    fn detects_fork_registration_race() {
         assert_eq!(
-            spawn_player(&mut Command::new("/bin/true"), 0)
-                .unwrap_err()
-                .raw_os_error(),
-            Some(3)
+            edges.recv_timeout(Duration::from_millis(160)),
+            Err(mpsc::RecvTimeoutError::Timeout)
         );
+        drained.store(true, SeqCst);
+        assert_eq!(edges.recv_timeout(WAIT), Ok(false));
+        player.join().unwrap();
     }
 
     #[test]
-    #[ignore = "subprocess helper for player_dies_with_wrapper"]
-    fn parent_death_helper() {
-        let mut child = spawn_player(Command::new("/bin/sleep").arg("30"), process::id()).unwrap();
-        let mut listener =
-            UnixStream::connect(env::var_os("TEST_CHILD_PID_SOCKET").unwrap()).unwrap();
-        listener.write_all(&child.id().to_ne_bytes()).unwrap();
-        child.wait().unwrap();
-    }
-
-    #[test]
-    fn player_dies_with_wrapper() {
-        use std::os::unix::net::UnixListener;
-        let socket_path = env::temp_dir().join(format!("aplay-pid-{}.sock", process::id()));
-        let listener = UnixListener::bind(&socket_path).unwrap();
-        let mut wrapper = Command::new(env::current_exe().unwrap())
-            .args(["--ignored", "--exact", "linux::tests::parent_death_helper"])
-            .env("TEST_CHILD_PID_SOCKET", &socket_path)
-            .spawn()
-            .unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut conn = loop {
-            match listener.accept() {
-                Ok((stream, _)) => break stream,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(10))
-                }
-                Err(e) => {
-                    let _ = wrapper.kill();
-                    let _ = wrapper.wait();
-                    let _ = fs::remove_file(socket_path);
-                    panic!("waiting for wrapper child: {e}");
-                }
-            }
+    fn read_fragment_survives_an_idle_period_flush() {
+        let (mut writer, mut input) = UnixStream::pair().unwrap();
+        let (accepted, bytes) = mpsc::channel();
+        let mut pcm = FakePcm {
+            accepted,
+            remaining: Arc::new(AtomicUsize::new(0)),
+            drained: Arc::new(AtomicBool::new(true)),
+            writes: VecDeque::new(),
         };
-        conn.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-        let mut pid = [0; 4];
-        conn.read_exact(&mut pid).unwrap();
-        fs::remove_file(socket_path).unwrap();
-        wrapper.kill().unwrap();
-        wrapper.wait().unwrap();
-        let path = format!("/proc/{}/stat", u32::from_ne_bytes(pid));
-        for _ in 0..100 {
-            match fs::read_to_string(&path) {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return,
-                Ok(s) if s.rsplit_once(')').unwrap().1.trim_start().starts_with('Z') => return,
-                _ => thread::sleep(Duration::from_millis(10)),
-            }
+        let player = thread::spawn(move || play(&mut input, &mut pcm, FIXTURE, |_| {}).unwrap());
+        writer.write_all(&[1, 2, 3]).unwrap();
+        assert_eq!(bytes.recv_timeout(WAIT).unwrap(), [1, 2, 0, 0, 0, 0, 0, 0]);
+        writer.write_all(&[4, 5, 6, 7]).unwrap();
+        drop(writer);
+        assert_eq!(bytes.recv_timeout(WAIT).unwrap(), [3, 4, 5, 6, 0, 0, 0, 0]);
+        player.join().unwrap();
+    }
+
+    #[test]
+    fn short_burst_starts_without_waiting_for_eof() {
+        let (mut writer, mut input) = UnixStream::pair().unwrap();
+        let remaining = Arc::new(AtomicUsize::new(PREPARED));
+        let (accepted, bytes) = mpsc::channel();
+        let (notifier, edges) = mpsc::channel();
+        let mut pcm = FakePcm {
+            accepted,
+            remaining: remaining.clone(),
+            drained: Arc::new(AtomicBool::new(true)),
+            writes: VecDeque::new(),
+        };
+        let player = thread::spawn(move || {
+            play(&mut input, &mut pcm, FIXTURE, |on| {
+                notifier.send(on).unwrap()
+            })
+            .unwrap();
+        });
+        writer.write_all(&[1, 2]).unwrap();
+        assert_eq!(edges.recv_timeout(WAIT), Ok(true));
+        assert_eq!(bytes.recv_timeout(WAIT).unwrap(), [1, 2, 0, 0, 0, 0, 0, 0]);
+        let deadline = Instant::now() + WAIT;
+        while remaining.load(SeqCst) == PREPARED && Instant::now() < deadline {
+            thread::sleep(CHECK_INTERVAL);
         }
-        panic!("player survived its wrapper");
+        assert_eq!(remaining.load(SeqCst), FIXTURE.period as usize);
+        remaining.store(0, SeqCst);
+        assert_eq!(edges.recv_timeout(WAIT), Ok(false));
+        drop(writer);
+        player.join().unwrap();
+    }
+
+    #[test]
+    fn initialization_fallback_sees_untouched_input() {
+        let (mut writer, input) = UnixStream::pair().unwrap();
+        writer.write_all(&[1, 2, 3, 4]).unwrap();
+        drop(writer);
+        let input = RefCell::new(input);
+        with_pcm::<FakePcm>(
+            || Err(io::Error::other("fixture open failure")),
+            |_, _| panic!("direct playback consumed input before fallback"),
+            || {
+                let mut bytes = Vec::new();
+                input.borrow_mut().read_to_end(&mut bytes)?;
+                assert_eq!(bytes, [1, 2, 3, 4]);
+                Ok(())
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn stat_uses_process_leader_start_ticks() {
+        let stat = fs::read("/proc/self/stat").unwrap();
+        assert!(start_ticks(&stat).is_some());
+        let hostile_comm = b"43 (x) \xff y)) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 876 99";
+        assert_eq!(start_ticks(hostile_comm), Some(876));
     }
 }

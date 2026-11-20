@@ -15,12 +15,12 @@ import re
 import tarfile
 import zipfile
 
-DEFAULT_VERSION = "2026.10.27.1"
+DEFAULT_VERSION = "2026.11.20.1"
 EASY_NAME = "oh2p-xiaozhi-easy-install.zip"
 SPEAKER_NAME = "oh2p-xiaozhi-speaker.tar.gz"
 IMAGE_NAME = "oh2p-xiaozhi-nas-amd64.tar.gz"
 SOURCE_REPOSITORY = "https://github.com/ChouMax-1989/oh2p-xiaozhi-aec"
-PREBUILT = ("arecord", "client", "vpm-owner")
+PREBUILT = ("aplay", "arecord", "client", "vpm-owner")
 SPEAKER_FILES = (
     "edge/boot-aec.sh", "edge/install.sh", "edge/rollback.sh",
     "edge/tools/alsa-routes.awk", "edge/prebuilt/SHA256SUMS",
@@ -120,39 +120,34 @@ def compose_text(version):
 def instructions(version):
     return f'''OH2P 小智 AEC 下载包 {version}
 
-适用：已有 SSH 的 OH2P 1.62.2 音箱，以及支持 Linux amd64 镜像的 NAS Docker。
-这是现有固件的附加软件包，不是整机固件，不刷写固件。使用者无需安装 Python 或编译源码。
+适用于已经能通过 SSH 登录的 OH2P 1.62.2 音箱，以及装有 Docker 和 Docker Compose 的 Intel/AMD 64 位 NAS。按教程安装和升级都无需编译、安装 Python 或刷机。
 
-已装旧版：只下载新版 NAS 镜像，导入后将原 docker-compose.yml 的 image 改为
-oh2p-xiaozhi-aec:{version}，再执行 docker compose up -d --no-deps server。
-保留原 data/config.py、.env、端口和其他设置；不要把本 ZIP 解压覆盖旧目录。
-本次不用重装音箱或刷固件。完整升级步骤见仓库 docs/DEPLOYMENT.md。
+安装、绑定、升级和刷机都以仓库首页为准：
+{SOURCE_REPOSITORY}/tree/v{version}#readme
 
-下面是第一次安装的步骤：
-1. 从同一 Release 下载本 ZIP、oh2p-xiaozhi-nas-amd64.tar.gz、
-   oh2p-xiaozhi-speaker.tar.gz 和 SHA256SUMS，核对下载文件 SHA256。
-2. 解压本 ZIP。把 NAS 镜像放在解压得到的 oh2p-xiaozhi 文件夹旁边。
-   进入 oh2p-xiaozhi 目录，在 NAS 终端执行：
-     docker load -i ../oh2p-xiaozhi-nas-amd64.tar.gz
-3. 音箱端把 oh2p-xiaozhi-speaker.tar.gz 上传到音箱可写目录，解压后进入 edge：
-     tar -xzf oh2p-xiaozhi-speaker.tar.gz
-     cd edge
-     sh install.sh ws://NAS_HOST:4399 --configure-alsa
-   把 NAS_HOST 换成你自己的 NAS 局域网地址。安装需要 root，校验固件库和现有启动入口。
-   安装脚本会备份现有配置、保留回退脚本，且不会启动进程。
-   如果安装提示 ALSA 已改变，先重启音箱；否则按安装输出的启动命令操作。
-4. NAS 在 oh2p-xiaozhi 目录执行：
-     docker compose up -d
-     docker compose logs -f server
-5. 默认唤醒词“你好小智”。首次唤醒按上游提示，用你自己的小智账号完成验证码绑定。
-   data/config.py 中设备标识、验证码和密钥初始为空，启动后由上游生成并持久化。
-   已绑定后保留 data/config.py，不要用空模板覆盖它，也不要公开该文件。
+第一次安装
 
-环境参数位于 .env，默认启用完整实时连续对话和 AEC/播放取消路径。
-改 .env 后执行 docker compose up -d --force-recreate。
-音箱回退命令：sh /data/open-xiaoai/rollback.sh；脚本恢复备份，不自动启动旧进程。
-完整安装、兼容条件、已验证范围与源码：
-{SOURCE_REPOSITORY}/tree/v{version}
+从同一个 GitHub 发行页下载本 ZIP、NAS 镜像、音箱安装包和 SHA256SUMS。按首页核对下载文件。
+把 NAS 镜像放进解压得到的 oh2p-xiaozhi 文件夹，在 NAS 上进入该文件夹并导入镜像：
+  docker load -i oh2p-xiaozhi-nas-amd64.tar.gz
+
+按首页把音箱包上传并解压到音箱，进入 edge 文件夹，用 root 安装。把 NAS_HOST 换成自己的 NAS 局域网地址：
+  sh install.sh ws://NAS_HOST:4399 --configure-alsa
+
+回到 NAS，在 oh2p-xiaozhi 文件夹执行 docker compose up -d，再重启音箱。
+默认唤醒词是“你好小智”。按音箱提示，用自己的小智账号完成验证码绑定。
+首次启动时 data/config.py 里的设备身份、验证码和令牌为空。绑定后配置会写回该文件，请妥善保存。
+
+从旧版升级
+
+本版要同时更新 NAS 镜像和音箱程序。按仓库首页导入新版镜像，在原 docker-compose.yml 中把 server 的 image 改为
+oh2p-xiaozhi-aec:{version}，在原目录执行 docker compose up -d --no-deps server。
+继续使用原来的 data/config.py、.env、端口和其他设置。
+
+在音箱将新版压缩包解压到新目录，进入其中的 edge 文件夹并执行：
+  sh install.sh --upgrade
+成功后重启音箱。安装器保留原 NAS 地址和 ALSA 声音配置。
+需要恢复升级前的音箱文件时，运行 sh /data/open-xiaoai/rollback.sh，再按首页指引重启。
 '''.encode("utf-8")
 
 
